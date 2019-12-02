@@ -65,14 +65,28 @@ def main(_):
             with tf.device(device):
                 model, model_info = get_model(args.model_name, args.batch_size, include_top=not args.no_top)
 
-            dataset_images, labels = imagenet.load_validation(args.input_dir, args.batch_size,
-                                                              preprocess=model_info['preprocess'],
-                                                              num_preprocessing_threads=1)
-
             model, linear_ops_in, linear_ops_out = transform(model, log=False, quantize=args.verify,
                                                              verif_preproc=args.preproc,
                                                              bits_w=model_info['bits_w'],
                                                              bits_x=model_info['bits_x'])
+
+            # dtype = np.float32 if not args.verify else DTYPE_VERIFY
+            # model_json, weights = model_to_json(sess, model, args.preproc, dtype=dtype,
+            #                                         bits_w=model_info['bits_w'], bits_x=model_info['bits_x'])
+            # np.set_printoptions(threshold=np.nan)
+            # print(type(weights))
+            # print(type(weights[0]))
+            # weight_str = [weights[0]]
+            # for i in range(1,5):
+            #     print("weights[i]'s length:{}\n".format(len(weights[i])))
+            #     weight_str.append(weights[i])
+            # weight_str='\n*************************************\n'.join([str(wei) for wei in weight_str])
+            
+            # with open('./model.json','w') as f:
+            #     f.write(weight_str)
+            dataset_images, labels = imagenet.load_validation(args.input_dir, args.batch_size,
+                                                              preprocess=model_info['preprocess'],
+                                                           num_preprocessing_threads=1)
 
             if args.mode == 'sgxdnn':
                 #sgxutils = SGXDNNUtils(args.use_sgx, num_enclaves=args.batch_size)

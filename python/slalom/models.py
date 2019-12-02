@@ -4,8 +4,8 @@ from keras.applications.vgg16 import VGG16
 from keras.applications.vgg19 import VGG19
 from keras.applications.mobilenet import MobileNet
 from python.slalom.resnet import ResNet50
-from python.slalom.resnet2 import ResNet34 as ResNet2_34, ResNet50 as ResNet2_50, ResNet101 as ResNet2_101, \
-    ResNet152 as ResNet2_152
+# from python.slalom.resnet2 import ResNet34 as ResNet2_34, ResNet50 as ResNet2_50, ResNet101 as ResNet2_101, \
+#     ResNet152 as ResNet2_152
 from keras.layers import Input
 from python.slalom.utils import preprocess_vgg, print_model_size
 from python.preprocessing.preprocessing_factory import get_preprocessing

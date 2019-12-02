@@ -42,8 +42,8 @@ namespace SGXDNN
 					  window_rows_, window_cols_, pad_rows_, pad_cols_, row_stride_, col_stride_, avg_pool](long start, long limit) {
 			const int in_rows = input_rows_;
 			const int in_cols = input_cols_;
-			const int window_rows = window_rows_;
-			const int window_cols = window_cols_;
+			const int window_rows = window_rows_;//每次求最大值或平均值的窗口行数
+			const int window_cols = window_cols_;//每次求最大值或平均值的窗口行数
 			const int pad_rows = pad_rows_;
 			const int pad_cols = pad_cols_;
 			const int row_stride = row_stride_;
@@ -54,6 +54,7 @@ namespace SGXDNN
 			 
 			{
 		  		// Initializes the output tensor with MIN<T>.
+				//将从start开始的,limit-start个输出图片size，归为一个shard
 		  		const int output_image_size = out_height * out_width * input_depth;
 		  		EigenMatrixMap out_shard(out_mat.data() + start * output_image_size,
 								   1, (limit - start) * output_image_size);
@@ -71,6 +72,7 @@ namespace SGXDNN
 				  for (int w = 0; w < in_cols; ++w) {
 		  	  	    // (h_start, h_end) * (w_start, w_end) is the range that the input
 			  	    // vector projects to.
+					//注意h_end，w_end是取不到的界
 			  	    const int hpad = h + pad_rows;
 			  	    const int wpad = w + pad_cols;
 			  	    const int h_start = (hpad < window_rows)
@@ -82,6 +84,8 @@ namespace SGXDNN
 											: (wpad - window_cols) / col_stride + 1;
 			  	    const int w_end = std::min(wpad / col_stride + 1, out_width);
 			  	    // compute elementwise max
+					//同一个输入(h,w)出现的位置是output中的(h_start, h_end) * (w_start, w_end)
+					//相应位置对应的那个window
 			  	    const int in_offset = (b * in_rows + h) * in_cols + w;
 			  	    for (int ph = h_start; ph < h_end; ++ph) {
 					  const int out_offset_base =
@@ -91,6 +95,7 @@ namespace SGXDNN
 						if (avg_pool) {
 							out_mat.col(out_offset) += in_mat.col(in_offset) / ((T)(window_rows * window_cols));
 						} else {
+							//其中cwiseMax是求两个矩阵中元素最大的
 				  	    	out_mat.col(out_offset) = out_mat.col(out_offset).cwiseMax(in_mat.col(in_offset));
 						}
 					  }

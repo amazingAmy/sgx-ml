@@ -69,14 +69,17 @@ namespace SGXDNN
 				long kernel_size = h_in * h_out;
 				kernel_data_ = mem_pool_->alloc<T>(kernel_size);
 				std::copy(kernel, kernel + kernel_size, kernel_data_);
+				//kernel_将和kernel_data_复用内存，矩阵规模为h_in*h_out
 				new (&kernel_) MatrixMap<T>(kernel_data_, h_in, h_out);
 			}
 
 			long bias_size = h_out;
 			bias_data_ = mem_pool_->alloc<T>(bias_size);
 			std::copy(bias, bias + bias_size, bias_data_);
+			//bias的矩阵通常都不大，因此可以直接
 			new (&bias_) typename TTypes<T>::ConstVec(bias_data_, h_out);
 
+			//对于vgg16来说，这里是h_out应该是4096 & 1000
 			output_shape_ = {1, 1, 0, h_out};
 			output_size_ = h_out;
 		}
@@ -100,7 +103,7 @@ namespace SGXDNN
 
 		TensorMap<T, 4> apply_impl(TensorMap<T, 4> input, void* device_ptr = NULL, bool release_input = true) override
 		{
-
+			//input是一个4维矩阵
 			int batch;
 
 			// flatten input if necessary
@@ -124,18 +127,22 @@ namespace SGXDNN
 				int sharded_h_in = h_in_ / shard_factor;
 				T* kernel_shard = mem_pool_->alloc<T>(sharded_h_in * h_out_);
 
+				//下面一共进行shard_factor次循环，才完成了一个完整input*kernel
 				for (int i=0; i<shard_factor; i++) {
-					// read some rows of the kernel
+					// read some rows of the kernel，每一行是h_out_个
 					std::copy(kernel_data_ + i * sharded_h_in * h_out_, kernel_data_ + (i+1) * sharded_h_in * h_out_, kernel_shard);
 					new (&kernel_) Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>
 							(kernel_shard, sharded_h_in, h_out_);
 
 					// TODO actually check mac...
-					Tag tag = mac->mac((uint8_t*) kernel_shard, sharded_h_in * h_out_ * sizeof(T));
+					Tag tag = mac->m--ac((uint8_t*) kernel_shard, sharded_h_in * h_out_ * sizeof(T));
 
+					//矩阵的noalias表明不会出现混淆，直接进行运算
+					//batch的不同表明输入的input.data是包括了几个输入
 					if (batch == 1) {
 						auto output_matrix_map = VectorMap<T>(output_mem_, h_out_);
 						auto input_matrix_map = VectorMap<T>(input.data() + i*sharded_h_in, sharded_h_in);
+						//下面就是进行矩阵运算的过程，反复迭代运行
 						if (i == 0) {
                         	output_matrix_map.noalias() = input_matrix_map * kernel_;
                     	} else {
@@ -184,6 +191,7 @@ namespace SGXDNN
             const int rest_size = output_map.size() / bias_size;
             array1d one_d = {output_map.size()};
             array1d bcast = {rest_size};
+			//其中rest_size就是bacth的数量，意思是把bias复制bcast份，然后和output_map相加
 			output_map.reshape(one_d) = output_map.reshape(one_d) + bias_.broadcast(bcast).reshape(one_d);
 
 			mem_pool_->release(input.data());
@@ -212,10 +220,10 @@ namespace SGXDNN
 
 		const int h_in_;
 		const int h_out_;
-		T* kernel_data_;
-		T* bias_data_;
-		MatrixMap<T> kernel_;
-		TensorMap<T, 1> bias_;
+		T* kernel_data_;//用来存放kernel的权重数据指针
+		T* bias_data_;//存放bias的数据指针
+		MatrixMap<T> kernel_;//kernal数据+规模
+		TensorMap<T, 1> bias_;//bias的数据+规模
 		MemPool* mem_pool_;
 		T* output_mem_;
 		bool use_sharding_;

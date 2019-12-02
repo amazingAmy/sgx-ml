@@ -42,7 +42,7 @@ namespace SGXDNN
 	{
 	public:
 		Conv2D(const std::string& name,
-			   const array4d input_shape,
+			   const array4d input_shape,//上一层的输出规模
                const array4d& kernel_shape,
                const int row_stride,
                const int col_stride,
@@ -80,9 +80,10 @@ namespace SGXDNN
 			   image_size(input_shape[1] * input_shape[2]),
 			   out_image_size(0)
 		{
-			const int filter_rows = kernel_shape[0];
-			const int filter_cols = kernel_shape[1];
+			const int filter_rows = kernel_shape[0];//定义卷积核的参数
+			const int filter_cols = kernel_shape[1];//定义卷积核的参数
 
+			//分别获取卷积之后的row和col
 			GetWindowedOutputSize(h, filter_rows, row_stride_,
 								  padding_, &h_out, &pad_rows_);
 			GetWindowedOutputSize(w, filter_cols, col_stride_,
@@ -425,10 +426,10 @@ namespace SGXDNN
 
 		int h;
 		int w;
-		int ch_in;
+		int ch_in;//表示输入的通道数，也就是输出的层数
 		int h_out;
 		int w_out;
-		int ch_out;
+		int ch_out;//表示输出的通道数，也就是卷积核的个数
 		int patch_size;
 		int image_size;
 		int out_image_size;

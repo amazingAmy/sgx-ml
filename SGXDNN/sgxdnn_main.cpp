@@ -112,7 +112,7 @@ extern "C" {
 
 	// forward pass
 	void predict_float(float* input, float* output, int batch_size) {
-
+		//对于vgg16来说，这三个依次是batch_size、224、224、3
 		array4d input_dims = {batch_size,
 							  model_float.input_shape[0],
 							  model_float.input_shape[1],
@@ -147,6 +147,7 @@ extern "C" {
 			auto temp_output = model_float.layers[i]->apply(*in_ptr);
 			#endif
 
+			//将上一次的输出作为下一次的输入
 			in_ptr = &temp_output;
 
 			sgx_time_t layer_end = get_time();

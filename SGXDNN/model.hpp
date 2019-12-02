@@ -63,6 +63,9 @@ namespace SGXDNN
 			{
 				printf("loading Conv2D layer\n");
 
+				//kernal_size分别表示kernel的大小，VGG16是3*3
+				//之后的两个参数表示每个kernel的通道数，也就是输入层的通道数
+				//最后一个表示kernel的个数，也就是输出层的通道数
 				array4d kernel_size = {
 						json_layer["kernel_size"][0].int_value(),
 						json_layer["kernel_size"][1].int_value(),
@@ -73,6 +76,8 @@ namespace SGXDNN
 				auto padding = get_padding(json_layer["padding"].string_value());
 
 				T *r_left, *r_right, *kernel, *bias;
+				//利用预计算的r_left和r_right
+				//
 				if (verif_preproc) {
 					r_left = weights[*weight_idx];
 					r_right = weights[*weight_idx + 1];
@@ -102,7 +107,8 @@ namespace SGXDNN
 									  json_layer["activation"].string_value())
 				));
 				*temp_shape = layers[layers.size()-1]->output_shape();
-
+				//理论上卷积层里的activation应该是linear，也就是等于不使用激活函数
+				//这里如果发现一个非linear的激活函数，就直接添加一层激活层
 				if (json_layer["activation"].string_value() != "linear") {
 					layers.push_back(std::shared_ptr<Layer<T>>(
 						new Activation<T>("activation",
