@@ -1,4 +1,3 @@
-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -13,7 +12,7 @@ from tensorflow.python.client import timeline
 from keras import backend
 
 from python import imagenet
-from python.slalom.models import get_model
+from python.slalom.models import get_model, get_test_model
 from python.slalom.quant_layers import transform
 from python.slalom.utils import Results, timer
 from python.slalom.sgxdnn import model_to_json, SGXDNNUtils, mod_test
@@ -47,7 +46,7 @@ def main(_):
             assert not args.verify and not args.use_sgx
 
             device = '/cpu:0'
-            #config = tf.ConfigProto(log_device_placement=False)
+            # config = tf.ConfigProto(log_device_placement=False)
             config = tf.ConfigProto(log_device_placement=False, device_count={'CPU': 1, 'GPU': 0})
             config.intra_op_parallelism_threads = 1
             config.inter_op_parallelism_threads = 1
@@ -63,59 +62,60 @@ def main(_):
 
         with tf.Session(config=config) as sess:
             with tf.device(device):
-                model, model_info = get_model(args.model_name, args.batch_size, include_top=not args.no_top)
+                #model, model_info = get_model(args.model_name, args.batch_size, include_top=not args.no_top)
+                model, model_info = get_test_model(args.batch_size)
 
             model, linear_ops_in, linear_ops_out = transform(model, log=False, quantize=args.verify,
                                                              verif_preproc=args.preproc,
                                                              bits_w=model_info['bits_w'],
                                                              bits_x=model_info['bits_x'])
 
-            # dtype = np.float32 if not args.verify else DTYPE_VERIFY
-            # model_json, weights = model_to_json(sess, model, args.preproc, dtype=dtype,
-            #                                         bits_w=model_info['bits_w'], bits_x=model_info['bits_x'])
-            # np.set_printoptions(threshold=np.nan)
-            # print(type(weights))
-            # print(type(weights[0]))
-            # weight_str = [weights[0]]
-            # for i in range(1,5):
-            #     print("weights[i]'s length:{}\n".format(len(weights[i])))
-            #     weight_str.append(weights[i])
-            # weight_str='\n*************************************\n'.join([str(wei) for wei in weight_str])
-            
-            # with open('./model.json','w') as f:
-            #     f.write(weight_str)
-            dataset_images, labels = imagenet.load_validation(args.input_dir, args.batch_size,
-                                                              preprocess=model_info['preprocess'],
-                                                           num_preprocessing_threads=1)
+            # dataset_images, labels = imagenet.load_validation(args.input_dir, args.batch_size,
+            #                                                  preprocess=model_info['preprocess'],
+            #                                               num_preprocessing_threads=1)
 
             if args.mode == 'sgxdnn':
-                #sgxutils = SGXDNNUtils(args.use_sgx, num_enclaves=args.batch_size)
-                #sgxutils = SGXDNNUtils(args.use_sgx, num_enclaves=2)
+                # sgxutils = SGXDNNUtils(args.use_sgx, num_enclaves=args.batch_size)
+                # sgxutils = SGXDNNUtils(args.use_sgx, num_enclaves=2)
                 sgxutils = SGXDNNUtils(args.use_sgx)
 
                 dtype = np.float32 if not args.verify else DTYPE_VERIFY
                 model_json, weights = model_to_json(sess, model, args.preproc, dtype=dtype,
                                                     bits_w=model_info['bits_w'], bits_x=model_info['bits_x'])
                 sgxutils.load_model(model_json, weights, dtype=dtype, verify=args.verify, verify_preproc=args.preproc)
-
+            return
             num_classes = np.prod(model.output.get_shape().as_list()[1:])
             print("num_classes: {}".format(num_classes))
-            
-            print_acc = (num_classes == 1000)
+
+            print_acc = (num_classes == 10)
             res = Results(acc=print_acc)
             coord = tf.train.Coordinator()
+            init = tf.initialize_all_variables()
+            sess.run(init)
             threads = tf.train.start_queue_runners(sess=sess, coord=coord)
             run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
             run_metadata = tf.RunMetadata()
 
-            #from multiprocessing.dummy import Pool as ThreadPool
-            #pool = ThreadPool(3)
-    
-            for i in range(num_batches):
-                images, true_labels = sess.run([dataset_images, labels])
+            print('start preparing data...')
 
-                if args.verify:
-                    images = np.round(2**model_info['bits_x'] * images)
+            # from multiprocessing.dummy import Pool as ThreadPool
+            # pool = ThreadPool(3)
+
+            dataset_images = np.random.rand(200,8, 32, 32, 3)
+            labels = np.random.randint(0, 9, size=(200,8))
+            #dataset_images, labels = tf.train.batch([dataset_images, labels], batch_size=args.batch_size,
+            #                                       num_threads=1, capacity=5 * args.batch_size)
+            # print(type(dataset_images), type(labels), sep='\n')
+            # print(dataset_images.shape(),labels.shape())
+            #print(sess.run(tf.shape(dataset_images)), sess.run(tf.shape(labels)))
+            #images, true_labels = sess.run([dataset_images, labels])
+            # images = dataset_images.eval()
+            # true_labels = labels.eval()
+            print('...data prepared')
+            for i in range(num_batches):
+                # images, true_labels = sess.run([dataset_images, labels])
+                images = dataset_images[i]
+                true_labels = labels[i]
                 print("input images: {}".format(np.sum(np.abs(images))))
 
                 if args.mode in ['tf-gpu', 'tf-cpu']:
@@ -137,68 +137,29 @@ def main(_):
 
                 else:
                     res.start_timer()
-                    
-                    if args.verify:
-                       
-                        t1 = timer() 
-                        linear_outputs = sess.run(linear_ops_out, feed_dict={model.inputs[0]: images,
-                                                                             backend.learning_phase(): 0},
-                                                  options=run_options, run_metadata=run_metadata)
-                        t2 = timer()
-                        print("GPU compute time: {:.4f}".format((t2-t1) / (1.0 * args.batch_size)))
 
-                        #mod_test(sess, model, images, linear_ops_in, linear_ops_out, verif_preproc=args.preproc)
+                    # no verify
+                    def func(data):
+                        return sgxutils.predict(data[1], num_classes=num_classes, eid_idx=0)
 
-                        def func(data):
-                            return sgxutils.predict_and_verify(data[1], data[2], num_classes=num_classes, dtype=dtype, eid_idx=0)
+                    # all_data = [(i, images[i:i+1]) for i in range(args.batch_size)]
+                    # preds = np.vstack(pool.map(func, all_data))
 
-                        if not args.verify_batched:
-                            start = timer()
-
-                            linear_outputs_batched = [x.reshape((args.batch_size, -1)) for x in linear_outputs]
-
-                            preds = []
-                            for i in range(args.batch_size):
-                                t1 = timer()
-                                aux_data = [x[i] for x in linear_outputs_batched]
-                                pred = sgxutils.predict_and_verify(images[i:i+1], aux_data,
-                                                                  num_classes=num_classes, dtype=dtype)
-                                t2 = timer()
-                                print("verify time: {:.4f}".format((t2-t1)))
-                                preds.append(pred)
-                            preds = np.vstack(preds)
-                            end = timer()
-                            print("avg verify time: {:.4f}".format((end-start) / (1.0 * args.batch_size)))
-
-                            #all_data = [(i, images[i:i+1], [x[i] for x in linear_outputs_batched]) for i in range(args.batch_size)]
-                            #preds = np.vstack(pool.map(func, all_data))
-                        else:
-                            preds = sgxutils.predict_and_verify(images, linear_outputs, num_classes=num_classes, dtype=dtype)
-
-                    else:
-
-                        def func(data):
-                            return sgxutils.predict(data[1], num_classes=num_classes, eid_idx=0)
-
-                        #all_data = [(i, images[i:i+1]) for i in range(args.batch_size)]
-                        #preds = np.vstack(pool.map(func, all_data))
-
-                        preds = []
-                        for i in range(args.batch_size):
-                            pred = sgxutils.predict(images[i:i + 1], num_classes=num_classes)
-                            preds.append(pred)
-                        preds = np.vstack(preds)
+                    preds = []
+                    for i in range(args.batch_size):
+                        pred = sgxutils.predict(images[i:i + 1], num_classes=num_classes)
+                        preds.append(pred)
+                    preds = np.vstack(preds)
 
                     res.end_timer(size=len(images))
                     res.record_acc(preds, true_labels)
                     res.print_results()
 
-                    
-                    #tl = timeline.Timeline(run_metadata.step_stats)
-                    #ctf = tl.generate_chrome_trace_format()
-                    #ctf_j = json.loads(ctf)
-                    #events = [e["ts"] for e in ctf_j["traceEvents"] if "ts" in e]
-                    #print("TF Timeline: {:.4f}".format((np.max(events) - np.min(events)) / (1000000.0 * args.batch_size)))
+                    # tl = timeline.Timeline(run_metadata.step_stats)
+                    # ctf = tl.generate_chrome_trace_format()
+                    # ctf_j = json.loads(ctf)
+                    # events = [e["ts"] for e in ctf_j["traceEvents"] if "ts" in e]
+                    # print("TF Timeline: {:.4f}".format((np.max(events) - np.min(events)) / (1000000.0 * args.batch_size)))
 
                 sys.stdout.flush()
             coord.request_stop()
@@ -210,6 +171,7 @@ def main(_):
 
 if __name__ == '__main__':
     import argparse
+
     parser = argparse.ArgumentParser()
 
     parser.add_argument('model_name', type=str,

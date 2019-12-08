@@ -174,16 +174,6 @@ namespace SGXDNN
 			return output_map;
 		}
 
-		TensorMap<T, 4> fwd_verify_impl(TensorMap<T, 4> input, float** aux_data, int linear_idx, void* device_ptr = NULL, bool release_input = true) override
-        {
-            auto output_map = apply_impl(input, device_ptr, release_input);
-
-            if (avg_pool_) {
-                output_map = output_map.round();
-            }
-
-            return output_map;
-        }
 
 
 		int input_rows_;

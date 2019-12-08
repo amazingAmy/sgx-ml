@@ -36,17 +36,10 @@ namespace SGXDNN
 				h_out_(h_out),
 				kernel_data_(nullptr),
 			    bias_data_(nullptr),
-				r_right_data_(nullptr),
-				kernel_r_data_(nullptr),
-				bias_r_data_(nullptr),
 				kernel_(NULL, h_in, h_out),
 				bias_(NULL, h_out),
-				r_right_(NULL, REPS, h_out),
-				bias_r_(NULL, REPS),
-				kernel_r_(NULL, h_in, REPS),
 				mem_pool_(mem_pool),
 				output_mem_(nullptr),
-				verif_preproc_(verif_preproc),
 				mac(nullptr)
 		{
 			assert(!verif_preproc);
@@ -135,7 +128,7 @@ namespace SGXDNN
 							(kernel_shard, sharded_h_in, h_out_);
 
 					// TODO actually check mac...
-					Tag tag = mac->m--ac((uint8_t*) kernel_shard, sharded_h_in * h_out_ * sizeof(T));
+					Tag tag = mac->mac((uint8_t*) kernel_shard, sharded_h_in * h_out_ * sizeof(T));
 
 					//矩阵的noalias表明不会出现混淆，直接进行运算
 					//batch的不同表明输入的input.data是包括了几个输入
@@ -198,26 +191,6 @@ namespace SGXDNN
 			return output_map;
 		}
 
-		TensorMap<T, 4> fwd_verify_impl(TensorMap<T, 4> input, float** extra_data, int linear_idx, void* device_ptr, bool release_input = true) {
-			int batch;
-			assert(-1);
-
-			if (input.dimension(0) == 1 && input.dimension(1) == 1)
-			{
-				batch = input.dimension(2);
-			}
-			else
-			{
-				batch = input.dimension(0);
-			}
-			output_shape_[2] = batch;
-
-			if (verif_preproc_) {
-				assert(batch == 1);
-			}
-			return apply_impl(input, device_ptr);
-		}
-
 		const int h_in_;
 		const int h_out_;
 		T* kernel_data_;//用来存放kernel的权重数据指针
@@ -230,16 +203,6 @@ namespace SGXDNN
 
 		array4d output_shape_;
 		int output_size_;
-
-		// verify with preprocessing
-		bool verif_preproc_;
-        double* r_right_data_;
-        double* kernel_r_data_;
-        double* bias_r_data_;
-
-        TensorMap<double, 2> r_right_;
-        TensorMap<double, 2> kernel_r_;
-        TensorMap<double, 1> bias_r_;
 
         std::string activation_type_;
 

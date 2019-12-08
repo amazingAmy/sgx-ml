@@ -108,22 +108,6 @@ namespace SGXDNN
 			}
 		}
 
-		TensorMap<T, 4> fwd_verify_impl(TensorMap<T, 4> input, float** extra_data, int linear_idx, void* device_ptr = NULL, bool release_input = true) override
-		{
-			if (verif_preproc_) {
-				return input;
-			}
-
-			if (activation_type_ == "relu6") {
-				input = (input.cwiseMax(static_cast<T>(0)).cwiseMin(static_cast<T>(6 * shift_w * shift_x)) * inv_shift).round();
-				return input;
-			}
-			else if (activation_type_ == "relu") {
-                input = (input.cwiseMax(static_cast<T>(0)) * inv_shift).round();
-                return input;
-			}
-			return input;
-		}
 
 		const std::string activation_type_;
 		const int bits_w_;

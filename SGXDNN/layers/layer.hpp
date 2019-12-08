@@ -34,11 +34,6 @@ namespace SGXDNN
             return result;
         }
 
-        TensorMap<T, 4> fwd_verify(TensorMap<T, 4> input_map, float** extra_data, int linear_idx, void* device_ptr = NULL, bool release_input = true)  {
-            auto result = fwd_verify_impl(input_map, extra_data, linear_idx, device_ptr, release_input);
-            return result;
-        }
-
         virtual array4d output_shape() = 0;
         virtual int output_size() = 0;
 
@@ -52,9 +47,6 @@ namespace SGXDNN
     protected:
         virtual TensorMap<T, 4> apply_impl(TensorMap<T, 4> input_map, void* device_ptr = NULL, bool release_input = true) = 0;
 
-        virtual TensorMap<T, 4> fwd_verify_impl(TensorMap<T, 4> input_map, float** extra_data, int linear_idx, void* device_ptr = NULL, bool release_input = true) {
-			return apply_impl(input_map, device_ptr, release_input);
-		}
     };
 }
 #endif

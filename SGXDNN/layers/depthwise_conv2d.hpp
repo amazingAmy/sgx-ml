@@ -81,14 +81,8 @@ namespace SGXDNN
                row_stride_(row_stride),
                col_stride_(col_stride),
                padding_(padding),
-			   r_left_data_(nullptr),
                kernel_data_(nullptr),
                bias_data_(nullptr),
-			   kernel_r_data_(nullptr),
-			   bias_r_data_(nullptr),
-			   r_left_(NULL, REPS, input_shape[1] * input_shape[2]),
-			   kernel_r_(NULL, REPS, kernel_shape[0] * kernel_shape[1] * kernel_shape[2]),
-			   bias_r_(NULL, REPS, kernel_shape[2]),
                bias_(NULL, kernel_shape[2]),
 			   mem_pool_(mem_pool),
 			   verif_preproc_(verif_preproc)
@@ -119,65 +113,15 @@ namespace SGXDNN
 
 			assert(row_stride == col_stride);
 
-			if (is_verif_mode)
-			{
-				if (verif_preproc) {
-					// copy kernel and bias
-					//long kernel_size = kernel_shape[0] * kernel_shape[1] * kernel_shape[2];
-					//kernel_data_ = mem_pool_->alloc<T>(kernel_size);
-					//std::copy(kernel, kernel + kernel_size, kernel_data_);
+			// copy kernel and bias
+			long kernel_size = kernel_shape[0] * kernel_shape[1] * kernel_shape[2];
+			kernel_data_ = mem_pool_->alloc<T>(kernel_size);
+			std::copy(kernel, kernel + kernel_size, kernel_data_);
 
-					int image_size = input_rows * input_cols;
-					int out_image_size = out_rows * out_cols;
-					r_left_data_ = mem_pool_->alloc<double>(REPS * out_image_size);
-					kernel_r_data_ = mem_pool_->alloc<T>(image_size * ch_in * REPS);
-					bias_r_data_ = mem_pool_->alloc<double>(REPS * ch_in);
-
-					// Tensor maps
-					new (&r_left_) TensorMap<double, 2>(r_left_data_, REPS, out_image_size);
-					new (&kernel_r_) TensorMap<T, 2>(kernel_r_data_, REPS, image_size * ch_in);
-					new (&bias_r_) TensorMap<double, 2>(bias_r_data_, REPS, ch_in);
-
-					std::copy(r_left, r_left + REPS * out_image_size, r_left_data_);
-					std::copy(kernel, kernel + REPS * image_size * ch_in, kernel_r_data_);
-					std::copy(bias, bias + REPS * ch_in, bias_r_data_);
-
-					Tensor<double, 0> sum;
-					sum = r_left_.sum();
-					printf("r_left: %f\n", sum.data()[0]);
-					sum = kernel_r_.template cast<double>().sum();
-					printf("kernel_r: %f\n", sum.data()[0]);
-					sum = bias_r_.sum();
-					printf("bias_r: %f\n", sum.data()[0]);
-				} else {
-					// dimensions
-					int patch_size = filter_rows * filter_cols;
-					int image_size = input_rows * input_cols;
-
-					// copy kernel and bias
-					long kernel_size = kernel_shape[0] * kernel_shape[1] * kernel_shape[2];
-					kernel_data_ = mem_pool_->alloc<T>(kernel_size);
-					std::copy(kernel, kernel + kernel_size, kernel_data_);
-
-					long bias_size = ch_in;
-					bias_data_ = mem_pool_->alloc<T>(bias_size);
-					std::copy(bias, bias + bias_size, bias_data_);
-					new (&bias_) typename TTypes<T>::ConstVec(bias_data_, ch_in);
-				}
-			} 
-			else
-			{
-				// copy kernel and bias
-				long kernel_size = kernel_shape[0] * kernel_shape[1] * kernel_shape[2];
-				kernel_data_ = mem_pool_->alloc<T>(kernel_size);
-				std::copy(kernel, kernel + kernel_size, kernel_data_);
-
-				long bias_size = ch_in;
-				bias_data_ = mem_pool_->alloc<T>(bias_size);
-				std::copy(bias, bias + bias_size, bias_data_);
-				new (&bias_) typename TTypes<T>::ConstVec(bias_data_, ch_in);
-
-			}
+			long bias_size = ch_in;
+			bias_data_ = mem_pool_->alloc<T>(bias_size);
+			std::copy(bias, bias + bias_size, bias_data_);
+			new (&bias_) typename TTypes<T>::ConstVec(bias_data_, ch_in);
 
 			args.in_rows = input_rows;
 			args.in_cols = input_cols;
@@ -244,225 +188,6 @@ namespace SGXDNN
 			return output_map;
 		}
 
-		TensorMap<T, 4> fwd_verify_impl(TensorMap<T, 4> input, float** aux_data, int linear_idx, void* device_ptr = NULL, bool release_input = true) override
-        {
-
-			float* extra_data = aux_data[linear_idx];
-			const int batch = input.dimension(0);
-            output_shape_[0] = batch;
- 
-			int h = input.dimension(1);
-			int w = input.dimension(2);
-			int ch_in = input.dimension(3);
-			int h_out = output_shape_[1];
-			int w_out = output_shape_[2];
-			int ch_out = output_shape_[3];
-			assert(ch_in == ch_out);
-
-			if (verif_preproc_) {
-				sgx_time_t start = get_time();
-				Tensor<double, 1> temp(REPS*ch_in);
-			
-				preproc_verif_X(input.data(), temp.data(), h, w, ch_in);
-
-				mem_pool_->release(input.data());
-                T* output_mem_ = mem_pool_->alloc<T>(batch * output_size_);
-                auto output_map = TensorMap<T, 4>(output_mem_, output_shape_);
-
-				assert(ch_in == ch_out);
-				preproc_verif_Z(extra_data, output_map.data(), temp.data(), h_out*w_out, ch_out);
-
-				temp = temp - (temp * inv_p_verif).floor() * static_cast<double>(p_verif);
-				//printf("temp:\n");
-				//std::cout << debugString<double, 1>(temp) << std::endl;
-				Tensor<bool, 0> eq = (temp == static_cast<double>(0)).all();
-				if (TIMING) {
-					printf("eq: %d\n", eq.data()[0]);
-				}
-
-				sgx_time_t end = get_time();
-				double elapsed = get_elapsed_time(start, end);
-				if (TIMING) {
-					printf("depthwise convd verif (%ld x %ld x %ld, s%d) took %.4f seconds\n", input.dimension(1), input.dimension(2), input.dimension(3), row_stride_, elapsed);
-				}
-
-				temp.resize(0);
-				return output_map;
-			}
-
-			bool batched_verif;
-
-			#ifndef USE_SGX
-			batched_verif = row_stride_ == 1 && batch > 1;
-			#else
-			batched_verif = false;
-			#endif
-
-			if (!batched_verif) {
-				sgx_time_t start = get_time();
-				T* output_mem_ = mem_pool_->alloc<T>(batch * output_size_);
-				auto output_map = TensorMap<T, 4>(output_mem_, output_shape_);
-
-				args.batch = batch;
-				depthwise_conv<T>(args, input.data(), kernel_data_, output_mem_);
-
-				const int bias_size = bias_.dimension(0);
-				const int rest_size = output_map.size() / bias_size;
-				Eigen::DSizes<int, 1> one_d(output_map.size());
-				Eigen::DSizes<int, 1> bcast(rest_size);
-
-				for (int i=0; i<rest_size; i++) {
-					for(int j=0; j<bias_size; j++) {
-						output_map.data()[i*bias_size + j] += bias_.data()[j];
-					}
-				}
-
-				mem_pool_->release(input.data());
-				sgx_time_t end = get_time();
-				double elapsed = get_elapsed_time(start, end);
-				if (TIMING) {
-					printf("depthwise convd (%ld x %ld x %ld,  s%d) took %.4f seconds\n", input.dimension(1), input.dimension(2), input.dimension(3), row_stride_, elapsed);
-				}
-				return output_map;
-			}
-
-
-			sgx_time_t start = get_time();
-			Tensor<double, 2> r_b(REPS, batch);
-			Tensor<double, 1> temp(REPS*h*w*ch_out);
-			Tensor<double, 1> out1(REPS*h*w*ch_out);
-			r_b.setConstant(1 << 20);
-
-			temp.setZero();
-
-			for (int i=0; i<batch; i++) {
-				for(int j=0; j<h*w*ch_in; j++) {
-					for(int r=0; r<REPS; r++) {
-						temp[r*h*w*ch_in + j] += static_cast<double>(input.data()[i*h*w*ch_in + j]) * r_b.data()[r*batch + i];
-					}
-				}
-			}
-
-			args.batch = REPS;
-			TensorMap<T, 1> kernel_(kernel_data_, args.filter_rows * args.filter_cols * args.in_depth);
-			Tensor<double, 1> kernel_dbl = kernel_.template cast<double>();
-			depthwise_conv<double>(args, temp.data(), kernel_dbl.data(), out1.data());
-
-			sgx_time_t loop1 = get_time();
-			if (TIMING) {
-				printf("after loop1 in %.4f s\n", get_elapsed_time(start, loop1));
-			}
-
-			mem_pool_->release(input.data());
-			temp.resize(0);
-			T* output_mem_ = mem_pool_->alloc<T>(batch * output_size_);
-
-			#ifndef USE_SGX
-			memcpy(output_mem_, extra_data, batch * output_size_ * sizeof(T));
-			#else
-			std::copy(extra_data, extra_data + batch * output_size_, output_mem_);
-			#endif
-
-			auto output_map = TensorMap<T, 4>(output_mem_, output_shape_);
-
-			sgx_time_t alloc = get_time();
-			if (TIMING) {
-				printf("after alloc in %.4f s\n", get_elapsed_time(start, alloc));
-			}
-
-			for (int i=0; i<batch; i++) {
-				for(int j=0; j<h_out*w_out*ch_out; j++) {
-					for(int r=0; r<REPS; r++) {
-						out1[r*h_out*w_out*ch_out + j] -= static_cast<double>(output_map.data()[i*h_out*w_out*ch_out + j]) *
-														  r_b.data()[r*batch + i];
-					}
-				}
-			}
-
-			array1d reps_dim = {1};
-			Tensor<double, 1> r_b_sum = r_b.sum(reps_dim);
-
-			for(int r=0; r<REPS; r++) {
-				for(int j=0; j<ch_out; j++) {
-					double bias_r = r_b_sum.data()[r] * bias_.data()[j];
-					for(int i=0; i<h_out*w_out; i++) {
-						out1[r*h_out*w_out*ch_out + i*ch_out + j] += bias_r;
-					}
-				}
-			}
-
-			sgx_time_t loop2 = get_time();
-			if (TIMING) {
-				printf("after loop2 in %.4f s\n", get_elapsed_time(start, loop2));
-			}
-
-			Tensor<bool, 0> eq = (out1 == static_cast<double>(0)).all();
-			if (TIMING) {
-				printf("eq: %d\n", eq.data()[0]);
-			}
-
-			r_b.resize(0,0);
-			out1.resize(0);
-			kernel_dbl.resize(0);
-			sgx_time_t end = get_time();
-			double elapsed = get_elapsed_time(start, end);
-			if (TIMING) {
-				printf("depthwise convd (%ld x %ld x %ld,  s%d) took %.4f seconds\n", input.dimension(1), input.dimension(2), input.dimension(3), row_stride_, elapsed);
-			}
-
-			return output_map;
-        }
-
-		inline void preproc_verif_X(T* input, double* temp, int h, int w, int ch_in) {
-			assert(ch_in % 8 == 0);
-			for (int i=0; i<ch_in; i++) {
-				for (int r=0; r<REPS; r++) {
-					temp[r*ch_in + i] = bias_r_.data()[r*ch_in + i];
-				}
-			}
-
-			for (int i=0; i<h*w; i++) {
-				for (int j=0; j<ch_in; j++) {
-					for (int r=0; r<REPS; r++) {
-						temp[r*ch_in + j] += static_cast<double>(input[i*ch_in + j]) *
-													static_cast<double>(kernel_r_.data()[r*h*w*ch_in + i*ch_in + j]);
-					}
-				}
-			}
-		}
-
-		inline void preproc_verif_Z(T* extra_data, T* output, double* temp, int out_image_size, int ch_out) {
-			assert(ch_out % 8 == 0);
-
-			__m256 z, relu;
-			__m256d z0, z1, rr0, rr1;
-
-			for (int i=0; i<out_image_size; i++) {
-				__m256d rl[REPS];
-				// duplicate r in a vector
-				for (int r=0; r<REPS; r++) {
-					rl[r] = _mm256_broadcast_sd(r_left_.data() + (r*out_image_size + i));
-				}
-
-				for (int j=0; j<ch_out; j+=8) {
-					z = _mm256_load_ps(extra_data + (i*ch_out + j));
-					relu = relu6_avx(z);
-					_mm256_store_ps(output + (i*ch_out + j), relu);
-
-					extract_two_doubles(z, z0, z1);
-
-					for (int r=0; r<REPS; r++) {
-						__m256d prod0 = _mm256_mul_pd(z0, rl[r]);
-						__m256d prod1 = _mm256_mul_pd(z1, rl[r]);
-						__m256d curr0 = _mm256_load_pd(temp + (r*ch_out + j));
-						__m256d curr1 = _mm256_load_pd(temp + (r*ch_out + j + 4));
-						_mm256_store_pd(temp + (r*ch_out + j), _mm256_sub_pd(curr0, prod0));
-						_mm256_store_pd(temp + (r*ch_out + j + 4), _mm256_sub_pd(curr1, prod1));
-					}
-				}
-			}
-		}
-
 		T* kernel_data_;
 		T* bias_data_;
 		TensorMap<T, 1> bias_;
@@ -482,13 +207,7 @@ namespace SGXDNN
 		DepthwiseArgs args;
 
 		bool verif_preproc_;
-		double* r_left_data_;
-        T* kernel_r_data_;      // keep this in single precision for SGX
-        double* bias_r_data_;
 
-        TensorMap<double, 2> r_left_;
-        TensorMap<T, 2> kernel_r_;
-        TensorMap<double, 2> bias_r_;
 	};
 
 template <typename T>

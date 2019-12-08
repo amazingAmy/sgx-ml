@@ -31,12 +31,9 @@ class SGXDNNUtils(object):
             self.eid = []
             for i in range(num_enclaves): 
                 self.eid.append(self.lib.initialize_enclave())
-
-            self.slalom_lib = tf.load_op_library(SGX_SLALOM_LIB)
         else:
             self.lib = cdll.LoadLibrary(DNNLIB)
             self.eid = None
-            self.slalom_lib = tf.load_op_library(SLALOM_LIB)
 
     def destroy(self):
         if self.use_sgx and self.eid is not None:
@@ -107,106 +104,6 @@ class SGXDNNUtils(object):
 
         return res
 
-    def predict_and_verify(self, x, aux_data, num_classes=1000, dtype=np.float64, eid_idx=0):
-        assert dtype == np.float32
-        ptr_type = c_float
-        predict_method = self.lib.predict_verify_float
-        ptr_type_aux = c_float
-
-        x_typed = x.reshape(-1).astype(dtype)
-        inp_ptr = np.ctypeslib.as_ctypes(x_typed)
-
-        aux_ptrs = (POINTER(ptr_type_aux) * len(aux_data))()
-        for i in range(len(aux_data)):
-            aux_ptrs[i] = np.ctypeslib.as_ctypes(aux_data[i])
-
-        res = np.zeros((len(x), num_classes), dtype=dtype)
-        res_ptr = np.ctypeslib.as_ctypes(res.reshape(-1))
-
-        if self.use_sgx:
-            predict_method.argtypes = [c_ulong, POINTER(ptr_type), POINTER(ptr_type),
-                                       POINTER(POINTER(ptr_type_aux)), c_int]
-            predict_method(self.eid[eid_idx], inp_ptr, res_ptr, aux_ptrs, x.shape[0])
-        else:
-            predict_method.argtypes = [POINTER(ptr_type), POINTER(ptr_type),
-                                       POINTER(POINTER(ptr_type_aux)), c_int]
-            predict_method(inp_ptr, res_ptr, aux_ptrs, x.shape[0])
-        return res.astype(np.float32)
-
-    def relu_slalom(self, inputs, blind, activation, eid_idx=0):
-        if self.use_sgx:
-            eid = self.eid[eid_idx]
-            eid_low = eid % 2**32
-            eid_high = eid // 2**32
-            return self.slalom_lib.relu_slalom(inputs, blind, activation=activation, eid_low=eid_low, eid_high=eid_high)
-        else:
-            return self.slalom_lib.relu_slalom(inputs, blind, activation=activation)
-
-    def maxpoolrelu_slalom(self, inputs, blind, params, eid_idx=0):
-        ksize = (1, params['pool_size'][0], params['pool_size'][1], 1)
-        strides = (1, params['strides'][0], params['strides'][1], 1)
-        padding = params['padding'].upper()
-
-        if self.use_sgx:
-            eid = self.eid[eid_idx]
-            eid_low = eid % 2**32
-            eid_high = eid // 2**32
-            return self.slalom_lib.relu_max_pool_slalom(inputs, blind, ksize, strides, padding, eid_low=eid_low, eid_high=eid_high)
-        else:
-            return self.slalom_lib.relu_max_pool_slalom(inputs, blind, ksize, strides, padding)
-
-    def slalom_init(self, slalom_integrity, slalom_privacy, batch_size, eid_idx=0):
-        if self.use_sgx:
-            self.lib.slalom_init.argtypes = [c_ulong, c_bool, c_bool, c_int]
-            self.lib.slalom_init(self.eid[eid_idx], slalom_integrity, slalom_privacy, batch_size)
-        else:
-            self.lib.slalom_init(slalom_integrity, slalom_privacy, batch_size)
-
-    def slalom_get_r(self, r, eid_idx=0):
-        r_flat = r.reshape(-1)
-        inp_ptr = np.ctypeslib.as_ctypes(r_flat)
-
-        if self.use_sgx:
-            self.lib.slalom_get_r.argtypes = [c_ulong, POINTER(c_float), c_int]
-            self.lib.slalom_get_r(self.eid[eid_idx], inp_ptr, r.size)
-        else:
-            self.lib.slalom_get_r.argtypes = [POINTER(c_float), c_int]
-            self.lib.slalom_get_r(inp_ptr, r.size)
-
-    def slalom_set_z(self, z, z_enc, eid_idx=0):
-        z_flat = z.reshape(-1)
-        inp_ptr = np.ctypeslib.as_ctypes(z_flat)
-
-        z_enc_flat = z_enc.reshape(-1)
-        out_ptr = np.ctypeslib.as_ctypes(z_enc_flat)
-
-        if self.use_sgx:
-            self.lib.slalom_set_z.argtypes = [c_ulong, POINTER(c_float), POINTER(c_float), c_int]
-            self.lib.slalom_set_z(self.eid[eid_idx], inp_ptr, out_ptr, z.size)
-        else:
-            self.lib.slalom_set_z.argtypes = [POINTER(c_float), POINTER(c_float), c_int]
-            self.lib.slalom_set_z(inp_ptr, out_ptr, z.size)
-   
-    def align_numpy(self, unaligned):
-        sess = tf.get_default_session()
-        aligned = sess.run(tf.ones(unaligned.shape, dtype=unaligned.dtype))
-        np.copyto(aligned, unaligned)
-        return aligned
- 
-    def slalom_blind_input(self, x, eid_idx=0):
-        res = self.align_numpy(x)
-        res_flat = res.reshape(-1)
-        inp_ptr = np.ctypeslib.as_ctypes(res_flat)
-        out_ptr = np.ctypeslib.as_ctypes(res_flat)
-
-        if self.use_sgx:
-            self.lib.slalom_blind_input.argtypes = [c_ulong, POINTER(c_float), POINTER(c_float), c_int]
-            self.lib.slalom_blind_input(self.eid[eid_idx], inp_ptr, out_ptr, x.size)
-        else:
-            self.lib.slalom_blind_input.argtypes = [POINTER(c_float), POINTER(c_float), c_int]
-            self.lib.slalom_blind_input(inp_ptr, out_ptr, x.size)
-        
-        return res
 
 
 # convert a model to JSON format and potentially precompute integrity check vectors

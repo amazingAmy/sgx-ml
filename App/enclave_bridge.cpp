@@ -219,81 +219,81 @@ extern "C"
         printf("returning...\n");
 	}
 
-    void load_model_float_verify(unsigned long int eid, char* model_json, float** filters, bool preproc) {
-		sgx_status_t ret = ecall_load_model_float_verify(eid, model_json, filters, preproc);
-		if (ret != SGX_SUCCESS) {
-			print_error_message(ret);
-			throw ret;
-		}
-	}
+    //void load_model_float_verify(unsigned long int eid, char* model_json, float** filters, bool preproc) {
+	//	sgx_status_t ret = ecall_load_model_float_verify(eid, model_json, filters, preproc);
+	//	if (ret != SGX_SUCCESS) {
+	//		print_error_message(ret);
+	//		throw ret;
+	//	}
+	//}
 
-	void predict_verify_float(unsigned long int eid, float* input, float* output, float** aux_data, int batch_size) {
+	// void predict_verify_float(unsigned long int eid, float* input, float* output, float** aux_data, int batch_size) {
 
-		sgx_status_t ret = ecall_predict_verify_float(eid, input, output, aux_data, batch_size);
-		if (ret != SGX_SUCCESS) {
-			print_error_message(ret);
-			throw ret;
-		}
-		printf("returning...\n");
-	}
+	// 	sgx_status_t ret = ecall_predict_verify_float(eid, input, output, aux_data, batch_size);
+	// 	if (ret != SGX_SUCCESS) {
+	// 		print_error_message(ret);
+	// 		throw ret;
+	// 	}
+	// 	printf("returning...\n");
+	// }
 
-	void slalom_relu(unsigned long int eid, float* input, float* output, float* blind, int num_elements, char* activation) {
-		sgx_status_t ret = ecall_slalom_relu(eid, input, output, blind, num_elements, activation);
-		if (ret != SGX_SUCCESS) {
-			print_error_message(ret);
-			throw ret;
-		}
-	}
-
-	void slalom_maxpoolrelu(unsigned long int eid, float* input, float* output, float* blind, 
-							long int dim_in[4], long int dim_out[4],
-                            int window_rows, int window_cols, 
-							int row_stride, int col_stride, 
-							bool same_padding)
-	{
-		sgx_status_t ret = ecall_slalom_maxpoolrelu(eid, input, output, blind, 
-										  			dim_in, dim_out, 
-											 		window_rows, window_cols, 
-											 		row_stride, col_stride,
-													same_padding);
-		if (ret != SGX_SUCCESS) {
-			print_error_message(ret);
-			throw ret;
-		}
-	}
-
-	void slalom_init(unsigned long int eid, bool integrity, bool privacy, int batch_size) {
-		sgx_status_t ret = ecall_slalom_init(eid, integrity, privacy, batch_size);
-		if (ret != SGX_SUCCESS) {
-			print_error_message(ret);
-			throw ret;
-		}
-	}
-
-	void slalom_get_r(unsigned long int eid, float* out, int size) {
-		sgx_status_t ret = ecall_slalom_get_r(eid, out, size);
-		if (ret != SGX_SUCCESS) {
-			print_error_message(ret);
-			throw ret;
-		}
-	}
-
-	void slalom_set_z(unsigned long int eid, float* z, float* z_enc, int size) {
-		sgx_status_t ret = ecall_slalom_set_z(eid, z, z_enc, size);
-		if (ret != SGX_SUCCESS) {
-			print_error_message(ret);
-			throw ret;
-		}
-	}
-
-	void slalom_blind_input(unsigned long int eid, float* inp, float* out, int size) {
-		sgx_status_t ret = ecall_slalom_blind_input(eid, inp, out, size);
-		if (ret != SGX_SUCCESS) {
-			print_error_message(ret);
-			throw ret;
-		}
-	}
-
+// 	void slalom_relu(unsigned long int eid, float* input, float* output, float* blind, int num_elements, char* activation) {
+// 		sgx_status_t ret = ecall_slalom_relu(eid, input, output, blind, num_elements, activation);
+// 		if (ret != SGX_SUCCESS) {
+// 			print_error_message(ret);
+// 			throw ret;
+// 		}
+// 	}
+//
+// 	void slalom_maxpoolrelu(unsigned long int eid, float* input, float* output, float* blind,
+// 							long int dim_in[4], long int dim_out[4],
+//                             int window_rows, int window_cols,
+// 							int row_stride, int col_stride,
+// 							bool same_padding)
+// 	{
+// 		sgx_status_t ret = ecall_slalom_maxpoolrelu(eid, input, output, blind,
+// 										  			dim_in, dim_out,
+// 											 		window_rows, window_cols,
+// 											 		row_stride, col_stride,
+// 													same_padding);
+// 		if (ret != SGX_SUCCESS) {
+// 			print_error_message(ret);
+// 			throw ret;
+// 		}
+// 	}
+//
+// 	void slalom_init(unsigned long int eid, bool integrity, bool privacy, int batch_size) {
+// 		sgx_status_t ret = ecall_slalom_init(eid, integrity, privacy, batch_size);
+// 		if (ret != SGX_SUCCESS) {
+// 			print_error_message(ret);
+// 			throw ret;
+// 		}
+// 	}
+//
+// 	void slalom_get_r(unsigned long int eid, float* out, int size) {
+// 		sgx_status_t ret = ecall_slalom_get_r(eid, out, size);
+// 		if (ret != SGX_SUCCESS) {
+// 			print_error_message(ret);
+// 			throw ret;
+// 		}
+// 	}
+//
+// 	void slalom_set_z(unsigned long int eid, float* z, float* z_enc, int size) {
+// 		sgx_status_t ret = ecall_slalom_set_z(eid, z, z_enc, size);
+// 		if (ret != SGX_SUCCESS) {
+// 			print_error_message(ret);
+// 			throw ret;
+// 		}
+// 	}
+//
+// 	void slalom_blind_input(unsigned long int eid, float* inp, float* out, int size) {
+// 		sgx_status_t ret = ecall_slalom_blind_input(eid, inp, out, size);
+// 		if (ret != SGX_SUCCESS) {
+// 			print_error_message(ret);
+// 			throw ret;
+// 		}
+// 	}
+//
 	void sgxdnn_benchmarks(unsigned long int eid, int num_threads) {
 		sgx_status_t ret = ecall_sgxdnn_benchmarks(eid, num_threads);
 		if (ret != SGX_SUCCESS) {
@@ -372,8 +372,8 @@ int main(int argc, char *argv[])
 
 		for(int i=0; i<4; i++) {
 			auto start = std::chrono::high_resolution_clock::now();
-			//predict_float(eid, img, output, 1);
-			predict_verify_float(eid, img, output, extras, 1);
+			predict_float(eid, img, output, 1);
+			//predict_verify_float(eid, img, output, extras, 1);
 			auto finish = std::chrono::high_resolution_clock::now();
 			std::chrono::duration<double> elapsed = finish - start;
 			printf("predict required %4.2f sec\n", elapsed.count());

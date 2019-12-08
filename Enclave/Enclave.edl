@@ -10,36 +10,7 @@ enclave {
 									 [user_check] float** filters);
 
         public void ecall_predict_float([user_check] float* input, [user_check] float* output, int batch_size);
-
-
-        public void ecall_load_model_float_verify([user_check] char* model_json,
-									 [user_check] float** filters, int preproc);
-
-        public void ecall_predict_verify_float([user_check] float* input, [user_check] float* output, [user_check] float** aux_data, int batch_size);
- 		
- 		public void ecall_slalom_init(int integrity, int privacy, int batch_size);
-		public void ecall_slalom_get_r([user_check] float *out, int size);
-		public void ecall_slalom_set_z([user_check] float *z, [user_check] float *z_enc, int size);
- 		
- 		public void ecall_slalom_blind_input([user_check] float *in,
-                               		  		 [user_check] float *out,
-                               		  		 int size);
- 		
- 		public void ecall_slalom_relu([user_check] float *in,
-                               		  [user_check] float *out,
-                               		  [user_check] float* blind,
-                               		  int size,
-                               		  [user_check] char* activation);
-    
-    	public void ecall_slalom_maxpoolrelu([user_check] float *in,
-                               	  			 [user_check] float *out,
-                               	  			 [user_check] float* blind,
-										     [user_check] long int dim_in[4],
-										     [user_check] long int dim_out[4],
-										     int window_rows, int window_cols,
-										     int row_stride, int col_stride,
-										     int is_padding_same);
-    };
+        };
 
     /*
      * ocall_print_string - invokes OCALL to display string buffer inside the enclave.
