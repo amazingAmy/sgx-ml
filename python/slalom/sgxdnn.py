@@ -96,13 +96,26 @@ class SGXDNNUtils(object):
         predict_method = self.lib.predict_float
 
         if self.use_sgx:
-            predict_method.argtypes = [c_ulong, POINTER(ptr_type), POINTER(ptr_type), c_int]
+            pedict_method.argtypes = [c_ulong, POINTER(ptr_type), POINTER(ptr_type), c_int]
             predict_method(self.eid[eid_idx], inp_ptr, res_ptr, x.shape[0])
         else:
             predict_method.argtypes = [POINTER(ptr_type), POINTER(ptr_type), c_int]
             predict_method(inp_ptr, res_ptr, x.shape[0])
 
         return res
+    
+    def train(self,x,y,num_classes):
+        dtype = np.float32
+        x_typed = x.reshape(-1).astype(dtype)
+        inp_ptr = np.ctypeslib.as_ctypes(x_typed)
+
+        y_typed = y.reshape(-1).astype(np.float32)
+        label_ptr = np.ctypeslib.as_ctypes(y_typed)
+
+        train_method = self.lib.train
+        
+        train_method.argtypes = [POINTER(c_float),POINTER(c_float),c_int]
+        train_method(inp_ptr,label_ptr,x.shape[0])
 
 
 

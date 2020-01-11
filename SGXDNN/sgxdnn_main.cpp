@@ -23,6 +23,7 @@
 #include <string>
 #include <cstring>
 #include <deque>
+#include <stack>
 
 #include "Crypto.h"
 
@@ -155,6 +156,119 @@ extern "C" {
 		end_time = get_time_force();
         printf("total time: %4.4f sec\n", get_elapsed_time(start_time, end_time));
 	}
+
+
+	// back propagation
+	void train(float*input,float*labels,int batch_size)
+    {
+	    std::stack<float*>input_stack;
+        int output_size = model_float.layers.back()->output_size();
+
+        array4d input_dims = {batch_size,
+                              model_float.input_shape[0],
+                              model_float.input_shape[1],
+                              model_float.input_shape[2]};
+        array4d output_dims = {batch_size,1,1,output_size};
+
+        int input_size = batch_size * model_float.input_shape[0] * model_float.input_shape[1] * model_float.input_shape[2];
+        assert(input_size != 0);
+
+        // copy input into enclave
+        float* inp_copy = model_float.mem_pool->alloc<float>(input_size);
+        std::copy(input, input + input_size, inp_copy);
+        float* label_copy = model_float.mem_pool->alloc<float>(output_size);
+        std::copy(labels,labels+output_size,label_copy);
+
+        auto map_in = TensorMap<float, 4>(inp_copy, input_dims);
+        TensorMap<float, 4>* in_ptr = &map_in;
+
+        auto map_labels = TensorMap<float,4>(label_copy,output_dims);
+        TensorMap<float,4>* label_ptr = &map_labels;
+
+        sgx_time_t start_time;
+        sgx_time_t end_time;
+        double elapsed;
+
+        start_time = get_time_force();
+
+        input_stack.push(in_ptr->data());
+        // loop over all layers
+        for (int i=0; i<model_float.layers.size(); i++) {
+            if (TIMING) {
+                printf("before layer %d (%s)\n", i, model_float.layers[i]->name_.c_str());
+            }
+
+            sgx_time_t layer_start = get_time();
+#ifdef EIGEN_USE_THREADS
+            auto temp_output = model_float.layers[i]->apply(*in_ptr, (void*) &device, false);
+#else
+            auto temp_output = model_float.layers[i]->apply(*in_ptr,NULL,false);
+#endif
+
+            //将上一次的输出作为下一次的输入
+            in_ptr = &temp_output;
+            input_stack.push(in_ptr->data());
+            sgx_time_t layer_end = get_time();
+            if (TIMING) {
+                printf("layer %d required %4.4f sec\n", i, get_elapsed_time(layer_start, layer_end));
+            }
+        }
+
+        // for(int i=0;i<9;++i)
+        // {
+        //     cout<<input_stack.top()<<" ";
+        //     input_stack.pop();
+        // }
+
+        printf("forward pass end!\nstart back propagate(stack size = %d)...\n",input_stack.size());
+
+        auto der = model_float.mem_pool->alloc<float>(output_size);
+        TensorMap<float,4>der_map(der,1,1,1,output_size);
+        TensorMap<float,4>*back_der = &der_map;
+        std::string activation_name;
+        //loop over layers to back propagate
+        for(int i=0;i<model_float.layers.size();++i)
+        {
+            if(i==0)
+            {
+                printf("last layer start\n");
+                auto last_layer = model_float.layers.back();
+                assert(last_layer->name_=="activation");
+                activation_name = dynamic_pointer_cast<Activation<float>>(last_layer)->activation_type();
+                auto result = last_layer->last_back(*in_ptr,*label_ptr,*back_der,"mse");
+                back_der = &result;
+                input_stack.pop();
+                printf("last layer end\n");
+            }
+            else
+            {
+                auto layer = model_float.layers[model_float.layers.size()-1-i];
+                printf("%s layer start\n",layer->name_.c_str());
+                if(layer->name_=="activation")
+                {
+                    activation_name = dynamic_pointer_cast<Activation<float>>(layer)->activation_type();
+                    input_stack.pop();
+                    printf("%s layer end\n",activation_name.c_str());
+                    continue;
+                }
+                else
+                {
+                    auto output = input_stack.top();
+                    input_stack.pop();
+                    auto input = input_stack.top();
+                    auto dense_layer = dynamic_pointer_cast<Dense<float>>(layer);
+                    auto result = layer->back_prop(input,*back_der,activation_name,0.2);
+                    back_der = &result;
+                    printf("dense result size:%d\n",back_der->size());
+                    model_float.mem_pool->release(output);
+                }
+                printf("%s layer end\n",layer->name_.c_str());
+            }
+        }
+
+        end_time = get_time_force();
+        printf("total time: %4.4f sec\n", get_elapsed_time(start_time, end_time));
+    }
 	
 
 	void sgxdnn_benchmarks(int num_threads) {

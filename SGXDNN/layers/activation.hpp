@@ -1,7 +1,8 @@
 #ifndef SGXDNN_ACTIVATION_H_
 #define SGXDNN_ACTIVATION_H_
 
-#include "assert.h"
+
+#include <cassert>
 #include <iostream>
 #include <string>
 #include "layer.hpp"
@@ -67,10 +68,16 @@ namespace SGXDNN
 			return output_size_;
 		}
 
+		std::string activation_type()const
+		{
+			return activation_type_;
+		}
+
 	protected:
 
 		TensorMap<T, 4> apply_impl(TensorMap<T, 4> input, void* device_ptr = NULL, bool release_input = true) override
 		{
+		    std::cout<<"activation:"<<input.dimensions()<<std::endl;
 			#ifdef EIGEN_USE_THREADS
 			Eigen::ThreadPoolDevice* d = static_cast<Eigen::ThreadPoolDevice*>(device_ptr);
 			#endif
@@ -94,7 +101,7 @@ namespace SGXDNN
 				array1d depth_dim = {3};
 
 				input = ((input - input.maximum(depth_dim).eval().reshape(dims4d).broadcast(bcast))).exp();
-                input = input / (input.sum(depth_dim).eval().reshape(dims4d).broadcast(bcast));	
+                input = input / (input.sum(depth_dim).eval().reshape(dims4d).broadcast(bcast));
 				return input;
 			}
 			else if (activation_type_ == "linear")
@@ -107,6 +114,51 @@ namespace SGXDNN
 				return input;
 			}
 		}
+
+		TensorMap<T,4> last_back(TensorMap<T,4>output,TensorMap<T,4>labels,TensorMap<T,4>der,std::string error_func)
+        {
+		    VectorMap<T>output_matrix_map(output.data(),output_size_);
+            VectorMap<T>der_matrix_map(der.data(),output_size_);
+            VectorMap<T>labels_matrix_map(labels.data(),output_size_);
+
+		    if(error_func=="MSE"||error_func=="mse")
+		    {
+		    	//均方误差损失函数
+		        der_matrix_map = output_matrix_map -labels_matrix_map;
+		        der_matrix_map = der_matrix_map / output_size_;
+            }
+		    else if(error_func=="CrossEntropy"||error_func=="crossentropy")
+			{
+		    	if(activation_type_=="softmax")
+				{
+		    		der_matrix_map = output_matrix_map.array() - 1;
+		    		return der;
+				}
+		    	//交叉熵损失函数
+		    	der_matrix_map = (-labels_matrix_map).cwiseProduct(output_matrix_map.cwiseInverse());
+
+			}
+            VectorMap<T>der_matrix(der.data(),output_size_);
+            if(activation_type_=="relu")
+            {
+                for(int i=0;i<output_matrix_map.size();++i)
+                {
+                    der_matrix_map(i) *= output_matrix_map(i) > 0 ? 1 : 0;
+                }
+            }
+            else if(activation_type_=="relu6")
+            {
+                for(int i=0;i<output_matrix_map.size();++i)
+                {
+					 der_matrix_map(i) *= (output_matrix_map(i) == 0 || output_matrix_map(i) == 6) ? 0 : 1;
+                }
+            }
+            else if(activation_type_=="softmax")
+            {
+				der_matrix.cwiseProduct(((output_matrix_map.transpose()*(-output)).rowwise().sum()).transpose()+output_matrix_map);
+			}
+			return der;
+        }
 
 
 		const std::string activation_type_;

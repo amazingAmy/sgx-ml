@@ -1,9 +1,9 @@
 #ifndef SGXDNN_DENSE_H_
 #define SGXDNN_DENSE_H_
 
-#include <stdio.h>
-#include <iostream>
+#include <cstdio>
 #include <string>
+#include <iostream>
 
 #include "../mempool.hpp"
 #include "layer.hpp"
@@ -18,7 +18,6 @@ using namespace tensorflow;
 
 namespace SGXDNN
 {
-
 	template <typename T> class Dense : public Layer<T>
 	{
 	public:
@@ -92,10 +91,16 @@ namespace SGXDNN
             return 1;
         }
 
+        array2d kernel_dimensions()const
+        {
+		    return {kernel_.rows(),kernel_.cols()};
+        }
+
 	protected:
 
 		TensorMap<T, 4> apply_impl(TensorMap<T, 4> input, void* device_ptr = NULL, bool release_input = true) override
 		{
+            std::cout<<"dense:"<<kernel_.rows()<<"x"<<kernel_.cols()<<" bias:"<<bias_.dimension(0)<<endl;
 			//input是一个4维矩阵
 			int batch;
 
@@ -109,9 +114,8 @@ namespace SGXDNN
 				batch = input.dimension(0);
 			}
 			output_shape_[2] = batch;
-
 			output_mem_ = mem_pool_->alloc<T>(batch * output_size_);
-			auto output_map = TensorMap<T, 4>(output_mem_, output_shape_);
+			TensorMap<T, 4>output_map(output_mem_, output_shape_);
 
 			sgx_time_t start = get_time();
 
@@ -187,9 +191,63 @@ namespace SGXDNN
 			//其中rest_size就是bacth的数量，意思是把bias复制bcast份，然后和output_map相加
 			output_map.reshape(one_d) = output_map.reshape(one_d) + bias_.broadcast(bcast).reshape(one_d);
 
-			mem_pool_->release(input.data());
+			if(release_input)
+    			mem_pool_->release(input.data());
 			return output_map;
 		}
+
+		TensorMap<T,4> back_prop(T*input,TensorMap<T,4>der,std::string activation_func,float learn_rate)
+        {
+		    array4d shape = {1,1,1,h_in_};
+		    VectorMap<T>der_matrix_map(der.data(),der.size());
+		    // allocate the copy of kernel
+		    T*kernel_copy = mem_pool_->alloc<T>(h_in_*h_out_);
+		    std::copy(kernel_data_,kernel_data_+kernel_.rows()*kernel_.cols(),kernel_copy);
+		    MatrixMap <T>kernel_copy_matrix(kernel_copy,kernel_.rows(),kernel_.cols());
+		    //allocate the copy of result derivative
+		    T*result_der = mem_pool_->alloc<T>(h_in_);
+		    TensorMap<T,4>result_map(result_der,shape);
+		    VectorMap<T>result_matrix_map(result_der,h_in_);
+		    //allocate the copy of layer's input data
+		    T*input_copy = mem_pool_->alloc<T>(h_in_);
+		    std::copy(input_copy,input_copy+h_in_,input);
+            VectorMap<T>input_matrix_map(input_copy,h_in_);
+
+            // printf("kernel size:%dx%d, input size:%d, der size:%d, bias size:%d, result der size:%d\n",
+                    kernel_.rows(),kernel_.cols(),input_matrix_map.size(),der_matrix_map.size(),bias_.dimension(0),result_matrix_map.size());
+		    for(int j=0;j<kernel_.cols();++j)
+		    {
+                for (int i = 0; i < kernel_.rows(); ++i) {
+                    kernel_(i, j) -= learn_rate * input_matrix_map(i) * der_matrix_map(j);
+                }
+                bias_(j) -= learn_rate * der_matrix_map(j);
+            }
+		    if(activation_func=="relu")
+            {
+		        for(int i=0;i<h_in_;++i)
+                {
+		            input_matrix_map(i) = input_matrix_map(i)>0?1:0;
+                }
+		        result_matrix_map = (der_matrix_map*kernel_copy_matrix.transpose()).cwiseProduct(input_matrix_map);
+            }
+		    else if(activation_func=="relu6")
+            {
+		        for(int i=0;i<h_in_;++i)
+                {
+		            input_matrix_map(i) = (input_matrix_map(i)==6||input_matrix_map(i)==0)?0:1;
+                }
+                result_matrix_map = (der_matrix_map*kernel_copy_matrix.transpose()).cwiseProduct(input_matrix_map);
+            }
+		    else if(activation_func=="softmax")
+            {
+                result_matrix_map = der_matrix_map*kernel_copy_matrix.transpose()*(-Matrix<T>(input_matrix_map.asDiagonal())+input_matrix_map.transpose() * (-input_matrix_map));
+            }
+		    mem_pool_->release(kernel_copy);
+		    mem_pool_->release(der.data());
+		    mem_pool_->release(input_copy);
+
+		    return result_map;
+        }
 
 		const int h_in_;
 		const int h_out_;

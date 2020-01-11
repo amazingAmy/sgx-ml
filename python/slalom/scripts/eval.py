@@ -63,8 +63,9 @@ def main(_):
         with tf.Session(config=config) as sess:
             with tf.device(device):
                 #model, model_info = get_model(args.model_name, args.batch_size, include_top=not args.no_top)
+                print("start to get model in python...")
                 model, model_info = get_test_model(args.batch_size)
-
+                print('...Already get model in python')
             model, linear_ops_in, linear_ops_out = transform(model, log=False, quantize=args.verify,
                                                              verif_preproc=args.preproc,
                                                              bits_w=model_info['bits_w'],
@@ -83,7 +84,7 @@ def main(_):
                 model_json, weights = model_to_json(sess, model, args.preproc, dtype=dtype,
                                                     bits_w=model_info['bits_w'], bits_x=model_info['bits_x'])
                 sgxutils.load_model(model_json, weights, dtype=dtype, verify=args.verify, verify_preproc=args.preproc)
-            return
+
             num_classes = np.prod(model.output.get_shape().as_list()[1:])
             print("num_classes: {}".format(num_classes))
 
@@ -102,7 +103,12 @@ def main(_):
             # pool = ThreadPool(3)
 
             dataset_images = np.random.rand(200,8, 32, 32, 3)
-            labels = np.random.randint(0, 9, size=(200,8))
+            labels = np.zeros((200,8,10))
+            for i in range(labels.shape[0]):
+                for j in range(labels.shape[1]):
+                    random_number = np.random.randint(0,9)
+                    labels[i][j][random_number] = 1
+            print(labels[0][0])
             #dataset_images, labels = tf.train.batch([dataset_images, labels], batch_size=args.batch_size,
             #                                       num_threads=1, capacity=5 * args.batch_size)
             # print(type(dataset_images), type(labels), sep='\n')
@@ -145,15 +151,19 @@ def main(_):
                     # all_data = [(i, images[i:i+1]) for i in range(args.batch_size)]
                     # preds = np.vstack(pool.map(func, all_data))
 
-                    preds = []
-                    for i in range(args.batch_size):
-                        pred = sgxutils.predict(images[i:i + 1], num_classes=num_classes)
-                        preds.append(pred)
-                    preds = np.vstack(preds)
+                    if(args.train):
+                        for i in range(args.batch_size):
+                            sgxutils.train(images[i:i+1],labels[i:i+1],num_classes=num_classes)
+                    else:
+                        preds = []
+                        for i in range(args.batch_size):
+                            pred = sgxutils.predict(images[i:i + 1], num_classes=num_classes)
+                            preds.append(pred)
+                        preds = np.vstack(preds)
 
-                    res.end_timer(size=len(images))
-                    res.record_acc(preds, true_labels)
-                    res.print_results()
+                        res.end_timer(size=len(images))
+                        res.record_acc(preds, true_labels)
+                        res.print_results()
 
                     # tl = timeline.Timeline(run_metadata.step_stats)
                     # ctf = tl.generate_chrome_trace_format()
@@ -196,6 +206,8 @@ if __name__ == '__main__':
                         help='Use batched verification.')
     parser.add_argument('--no_top', action='store_true',
                         help='Omit top part of network.')
+    parser.add_argument('--train', action='store_true',
+                       help='Use train instead of verify.' )
     args = parser.parse_args()
 
     tf.app.run()
