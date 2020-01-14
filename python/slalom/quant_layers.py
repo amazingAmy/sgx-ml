@@ -233,7 +233,8 @@ def transform(model, bits_w, bits_x, log=False, quantize=True, verif_preproc=Fal
     fuse_bn(all_layers)
 
     queue_ctr = 0
-    layers = model.layers
+    layers = model.layers[:]
+
     layer_map = {}
     flattened = False
 
@@ -455,7 +456,7 @@ def transform(model, bits_w, bits_x, log=False, quantize=True, verif_preproc=Fal
                 new_model.add(new_layer)
         else:
             skip_next = False
-
+    new_model.loss = model.loss
     print(new_model.summary())
 
     # copy over (and potentially quantize) all the weights

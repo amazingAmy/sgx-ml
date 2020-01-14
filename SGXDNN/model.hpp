@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <iostream>
+#include <fstream>
 #include <memory>
 
 #include "mempool.hpp"
@@ -355,6 +356,8 @@ namespace SGXDNN
 
 			Layer<T> *prev_layer;
 
+			loss_func = model_obj["loss_function"].string_value();
+
 			for (auto &json_layer : model_obj["layers"].array_items())
 			{
 				std::vector<std::shared_ptr<Layer<T>>> new_layers;
@@ -371,6 +374,7 @@ namespace SGXDNN
 		int input_shape[3];
 		std::vector<std::shared_ptr<Layer<T>>> layers;
 		MemPool* mem_pool;
+		std::string loss_func;
 
 	protected:
 		Eigen::PaddingType get_padding(std::string padding)

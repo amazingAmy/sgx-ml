@@ -12,6 +12,7 @@
 
 using namespace tensorflow;
 
+
 template <typename T, int NDIMS>
 std::string debugString(typename TTypes<T, NDIMS>::Tensor t) {
 	std::string s = "Tensor<" + std::to_string(NDIMS) + "D>(";

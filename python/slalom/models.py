@@ -170,27 +170,16 @@ def get_test_model(batch_size):
 
         return (x_train, y_train), (x_test, y_test)
 
-    # (x_train, y_train), (x_test, y_test) = load_data()
-
-    # x_train = x_train.astype('float32')  ###没有归一化训练无法收敛
-    # x_test = x_test.astype('float32')
-    # x_train /= 255
-    # x_test /= 255
-    # label_train = np.zeros((50000, 10, 1, 1), dtype='uint8')
-    # label_test = np.zeros((10000, 10, 1, 1), dtype='uint8')
-    # for i in range(50000):
-    #    label_train[i, y_train[i], 0, 0] = 1
-    # for i in range(10000):
-    #    label_test[i, y_test[i], 0, 0] = 1
-    # label_train = np.reshape(label_train, (50000, 10))
-    # label_test = np.reshape(label_test, (10000, 10))
     model = Sequential()
-    model.add(InputLayer(input_shape=[32,32,3]))
-    model.add(Dense(256,activation='relu'))
-    model.add(Dense(512, activation='relu'))
-    model.add(Dense(1024, activation='relu'))
-    model.add(Dense(10, activation='relu'))
-    model.compile(optimizer='sgd', loss='mse', metrics=['accuracy'])
+    model.add(InputLayer(input_shape=[32,32,3],name='input'))
+    model.add(Conv2D(32,kernel_size=(5,5),activation='relu',padding='valid',name='Conv_1'))
+    model.add(MaxPool2D(pool_size=(2,2),strides=(2,2),border_mode='valid'))
+    model.add(Flatten())
+    model.add(Dense(256,activation='relu',name='Dense_1'))
+    model.add(Dense(1024, activation='relu',name='Dense_2'))
+    model.add(Dense(10, activation='softmax',name='Dense_3'))
+    sgd = keras.optimizers.SGD(lr=0.01,decay=0.0,nesterov=False)
+    model.compile(optimizer=sgd, loss='mse', metrics=['accuracy'])
     # model.fit(x_train,label_train, epochs=80,batch_size=350)
     # score=model.evaluate(x_test,label_test)
     # print('test score:',score[0])

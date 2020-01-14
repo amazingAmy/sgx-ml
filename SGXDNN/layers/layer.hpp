@@ -34,7 +34,7 @@ namespace SGXDNN
             auto result = apply_impl(input_map, device_ptr, release_input);
             return result;
         }
-        virtual TensorMap<T,4> back_prop(T*input,TensorMap<T,4>der,std::string activation_func,float learn_rate){}
+        virtual TensorMap<T,4> back_prop(TensorMap<T,4>input,TensorMap<T,4>der,std::string activation_func,float learn_rate){}
         virtual TensorMap<T,4> last_back(TensorMap<T,4>output,TensorMap<T,4>labels,TensorMap<T,4>der,std::string error_func){}
 
         virtual array4d output_shape() = 0;
@@ -51,5 +51,6 @@ namespace SGXDNN
         virtual TensorMap<T, 4> apply_impl(TensorMap<T, 4> input_map, void* device_ptr = NULL, bool release_input = true) = 0;
 
     };
+
 }
 #endif

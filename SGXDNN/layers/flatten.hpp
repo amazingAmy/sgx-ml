@@ -38,14 +38,19 @@ namespace SGXDNN
 
 	protected:
 
-		TensorMap<T, 4> apply_impl(TensorMap<T, 4> input) override
+		TensorMap<T, 4> apply_impl(TensorMap<T, 4> input, void* device_ptr = NULL, bool release_input = true) override
 		{
 			const int batch = input.dimension(0);
 			output_shape_[2] = batch;
 			return input.reshape(output_shape_);;
 		}
 
-		array4d output_shape_;
+		TensorMap<T,4> back_prop(T*input,TensorMap<T,4>der,std::string activation_func,float learn_rate)
+        {
+		    return der.reshape(output_shape_);
+        }
+
+        array4d output_shape_;
 		int output_size_;
 	};
 }

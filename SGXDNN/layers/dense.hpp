@@ -7,6 +7,7 @@
 
 #include "../mempool.hpp"
 #include "layer.hpp"
+#include <cmath>
 
 #include "../Crypto.h"
 
@@ -100,7 +101,7 @@ namespace SGXDNN
 
 		TensorMap<T, 4> apply_impl(TensorMap<T, 4> input, void* device_ptr = NULL, bool release_input = true) override
 		{
-            std::cout<<"dense:"<<kernel_.rows()<<"x"<<kernel_.cols()<<" bias:"<<bias_.dimension(0)<<endl;
+            // std::cout<<"dense:"<<kernel_.rows()<<"x"<<kernel_.cols()<<" bias:"<<bias_.dimension(0)<<endl;
 			//input是一个4维矩阵
 			int batch;
 
@@ -115,7 +116,7 @@ namespace SGXDNN
 			}
 			output_shape_[2] = batch;
 			output_mem_ = mem_pool_->alloc<T>(batch * output_size_);
-			TensorMap<T, 4>output_map(output_mem_, output_shape_);
+			TensorMap<T,4> output_map(output_mem_, output_shape_);
 
 			sgx_time_t start = get_time();
 
@@ -196,51 +197,75 @@ namespace SGXDNN
 			return output_map;
 		}
 
-		TensorMap<T,4> back_prop(T*input,TensorMap<T,4>der,std::string activation_func,float learn_rate)
+		TensorMap<T,4> back_prop(TensorMap<T,4>input,TensorMap<T,4>der,std::string activation_func,float learn_rate)
         {
-		    array4d shape = {1,1,1,h_in_};
-		    VectorMap<T>der_matrix_map(der.data(),der.size());
+		    int batch;
+            if (input.dimension(0) == 1 && input.dimension(1) == 1)
+            {
+                batch = input.dimension(2);
+            }
+            else
+            {
+                batch = input.dimension(0);
+            }
+		    array4d shape = {1,1,batch,h_in_};
+		    MatrixMap<T>der_matrix_map(der.data(),batch,h_out_);
 		    // allocate the copy of kernel
 		    T*kernel_copy = mem_pool_->alloc<T>(h_in_*h_out_);
 		    std::copy(kernel_data_,kernel_data_+kernel_.rows()*kernel_.cols(),kernel_copy);
 		    MatrixMap <T>kernel_copy_matrix(kernel_copy,kernel_.rows(),kernel_.cols());
 		    //allocate the copy of result derivative
-		    T*result_der = mem_pool_->alloc<T>(h_in_);
+		    T*result_der = mem_pool_->alloc<T>(batch*h_in_);
 		    TensorMap<T,4>result_map(result_der,shape);
-		    VectorMap<T>result_matrix_map(result_der,h_in_);
+		    MatrixMap<T>result_matrix_map(result_der,batch,h_in_);
 		    //allocate the copy of layer's input data
-		    T*input_copy = mem_pool_->alloc<T>(h_in_);
-		    std::copy(input_copy,input_copy+h_in_,input);
-            VectorMap<T>input_matrix_map(input_copy,h_in_);
+		    T*input_copy = mem_pool_->alloc<T>(batch*h_in_);
+		    std::copy(input.data(),input.data()+batch*h_in_,input_copy);
+            MatrixMap<T>input_matrix_map(input_copy,batch,h_in_);
 
-            // printf("kernel size:%dx%d, input size:%d, der size:%d, bias size:%d, result der size:%d\n",
-                    kernel_.rows(),kernel_.cols(),input_matrix_map.size(),der_matrix_map.size(),bias_.dimension(0),result_matrix_map.size());
-		    for(int j=0;j<kernel_.cols();++j)
-		    {
-                for (int i = 0; i < kernel_.rows(); ++i) {
-                    kernel_(i, j) -= learn_rate * input_matrix_map(i) * der_matrix_map(j);
-                }
-                bias_(j) -= learn_rate * der_matrix_map(j);
-            }
+            VectorMap<T>bias_map(bias_data_,h_out_);
+            /***
+             printf("kernel size:%dx%d, input size:%d, der size:%d, bias size:%d, result der size:%d\n",
+                 //kernel_.rows(),kernel_.cols(),input_matrix_map.size(),der_matrix_map.size(),bias_.dimension(0),result_matrix_map.size());
+            for (int j = 0; j < kernel_.cols(); ++j)
+            {
+                for (int i = 0; i < kernel_.rows(); ++i)
+                {
+                    // kernel_(i, j) -= learn_rate * input_matrix_map(i) * der_matrix_map(j);
+            ***/
+            kernel_ -= learn_rate*(1.0f/batch)*(input_matrix_map.transpose()*der_matrix_map);
+            /*     }
+            */     // bias_(j) -= learn_rate * der_matrix_map(j);
+            bias_map -= learn_rate *(1.0f/batch)* (der_matrix_map.colwise().sum());
+            // }
 		    if(activation_func=="relu")
             {
-		        for(int i=0;i<h_in_;++i)
-                {
-		            input_matrix_map(i) = input_matrix_map(i)>0?1:0;
-                }
+		        for(int i=0;i<batch;++i)
+		            for(int j=0;j<h_in_;++j)
+                    {
+		                input_matrix_map(i,j) = input_matrix_map(i,j)>0?1:0;
+                    }
 		        result_matrix_map = (der_matrix_map*kernel_copy_matrix.transpose()).cwiseProduct(input_matrix_map);
             }
 		    else if(activation_func=="relu6")
             {
-		        for(int i=0;i<h_in_;++i)
-                {
-		            input_matrix_map(i) = (input_matrix_map(i)==6||input_matrix_map(i)==0)?0:1;
-                }
+                for(int i=0;i<batch;++i)
+                    for(int j=0;j<h_in_;++j)
+                    {
+	    	            input_matrix_map(i,j) = (input_matrix_map(i,j)==6||input_matrix_map(i,j)==0)?0:1;
+                    }
                 result_matrix_map = (der_matrix_map*kernel_copy_matrix.transpose()).cwiseProduct(input_matrix_map);
             }
 		    else if(activation_func=="softmax")
             {
-                result_matrix_map = der_matrix_map*kernel_copy_matrix.transpose()*(-Matrix<T>(input_matrix_map.asDiagonal())+input_matrix_map.transpose() * (-input_matrix_map));
+                //result_matrix_map = der_matrix_map*kernel_copy_matrix.transpose()*(-Matrix<T>(input_matrix_map.asDiagonal())+input_matrix_map.transpose() * (-input_matrix_map));
+                result_matrix_map = der_matrix_map*kernel_copy_matrix.transpose();
+                for(int i=0;i<batch;++i)
+                {
+                    VectorMap<T>input_vec_map(input_copy+h_in_*i,h_in_);
+                    VectorMap<T>result_vec_map(result_der+h_in_*i,h_in_);
+                    result_vec_map = result_vec_map*(input_vec_map.transpose()*-input_vec_map) + result_vec_map.cwiseProduct(input_vec_map);
+                }
             }
 		    mem_pool_->release(kernel_copy);
 		    mem_pool_->release(der.data());

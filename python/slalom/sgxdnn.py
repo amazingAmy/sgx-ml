@@ -94,7 +94,6 @@ class SGXDNNUtils(object):
 
         ptr_type = c_float
         predict_method = self.lib.predict_float
-
         if self.use_sgx:
             pedict_method.argtypes = [c_ulong, POINTER(ptr_type), POINTER(ptr_type), c_int]
             predict_method(self.eid[eid_idx], inp_ptr, res_ptr, x.shape[0])
@@ -104,7 +103,7 @@ class SGXDNNUtils(object):
 
         return res
     
-    def train(self,x,y,num_classes):
+    def train(self,x,y,num_classes,learn_rate=0.01):
         dtype = np.float32
         x_typed = x.reshape(-1).astype(dtype)
         inp_ptr = np.ctypeslib.as_ctypes(x_typed)
@@ -112,10 +111,17 @@ class SGXDNNUtils(object):
         y_typed = y.reshape(-1).astype(np.float32)
         label_ptr = np.ctypeslib.as_ctypes(y_typed)
 
+        res = np.zeros((len(x), num_classes), dtype=dtype)
+        res_ptr = np.ctypeslib.as_ctypes(res.reshape(-1))
+
         train_method = self.lib.train
         
-        train_method.argtypes = [POINTER(c_float),POINTER(c_float),c_int]
-        train_method(inp_ptr,label_ptr,x.shape[0])
+        train_method.argtypes = [POINTER(c_float),POINTER(c_float),POINTER(c_float),c_int,c_float]
+        train_method.restype = c_float
+
+        time = train_method(inp_ptr,res_ptr,label_ptr,x.shape[0],learn_rate)
+        print("time:",time)
+        return res, time
 
 
 
@@ -363,7 +369,12 @@ def model_to_json(sess, model, verif_preproc=False, slalom_privacy=False, dtype=
 
         return json, layer_weights
 
-    model_json = {'layers': [], 'shift_w': 2**bits_w, 'shift_x': 2**bits_x, 'max_tensor_size': 224*224*64}
+    def get_loss_func(origin_loss_func):
+        loss_func = "CrossEntropy" if "crossentropy" in origin_loss_func else "mse"
+        return loss_func
+
+    loss_func = get_loss_func(model.loss)
+    model_json = {'layers': [], 'shift_w': 2**bits_w, 'shift_x': 2**bits_x, 'max_tensor_size': 224*224*64, 'loss_function':loss_func}
     weights = []
     for idx, layer in enumerate(model.layers):
         json, layer_weights = layer_to_json(layer)
