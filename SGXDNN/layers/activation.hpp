@@ -111,7 +111,8 @@ namespace SGXDNN
             }
         }
 
-        TensorMap<T, 4>last_back(TensorMap<T, 4> output, TensorMap<T, 4> labels, TensorMap<T, 4> der, std::string loss_func)
+        TensorMap<T, 4>
+        last_back(TensorMap<T, 4> output, TensorMap<T, 4> labels, TensorMap<T, 4> der, std::string loss_func)
         {
             int batch = labels.dimension(0);
             MatrixMap<T> output_matrix_map(output.data(), batch, output_size_);
@@ -121,7 +122,7 @@ namespace SGXDNN
             if (loss_func == "MSE" || loss_func == "mse")
             {
                 //均方误差损失函数
-                std::cout<<"*********MSE*********"<<std::endl;
+                std::cout << "*********MSE*********" << std::endl;
                 der_matrix_map = output_matrix_map - labels_matrix_map;
                 der_matrix_map = (2 * der_matrix_map) * (1.0f / output_size_);
             } else if (loss_func == "CrossEntropy" || loss_func == "crossentropy")
@@ -129,7 +130,7 @@ namespace SGXDNN
                 //交叉熵损失函数
                 if (activation_type_ == "softmax")
                 {
-                    std::cout<<"*********crossentropy with softmax*********"<<std::endl;
+                    std::cout << "*********crossentropy with softmax*********" << std::endl;
                     der_matrix_map = output_matrix_map - labels_matrix_map;
                     return der;
                 }
@@ -164,9 +165,50 @@ namespace SGXDNN
             return der;
         }
 
-        TensorMap<T,4>back_prop(TensorMap<T,4>input,TensorMap<T,4>der,std::string activation_func,float learn_rate)
+        TensorMap<T, 4> back_prop(TensorMap<T, 4> input, TensorMap<T, 4> der, float learn_rate) override
         {
-
+            // std::cout<<"Activation layer bp start"<<std::endl;
+            // std::cout<<"input dim:"<<input.dimensions()<<" der dim:"<<der.dimensions()<<std::endl;
+            new(&der)TensorMap<T,4>(der.data(),input.dimensions());
+            if (activation_type_ == "relu")
+            {
+                VectorMap<T> input_vec_map(input.data(), input.size());
+                for (int i = 0; i < input_vec_map.size(); ++i)
+                {
+                    input_vec_map(i) = input_vec_map(i) > 0 ? 1 : 0;
+                }
+                der = der * input;
+            } else if (activation_type_ == "relu6")
+            {
+                VectorMap<T> input_vec_map(input.data(), input.size());
+                for (int i = 0; i < input_vec_map.size(); ++i)
+                {
+                    input_vec_map(i) = (input_vec_map(i) == 0 || input_vec_map(i) == 6) ? 0 : 1;
+                }
+                der = der * input;
+            } else if (activation_type_ == "softmax")
+            {
+                int batch;
+                if (input.dimension(0) == 1 && input.dimension(1) == 1)
+                {
+                    batch = input.dimension(2);
+                }
+                else
+                {
+                    batch = input.dimension(0);
+                }
+                int batch_size = input.size() / batch;
+                for (int i = 0; i < batch; ++i)
+                {
+                    VectorMap<T> input_vec_map(input.data() + batch_size * i, batch_size);
+                    VectorMap<T> result_vec_map(der.data() + batch_size * i, batch_size);
+                    result_vec_map = result_vec_map * (input_vec_map.transpose() * -input_vec_map) + result_vec_map.cwiseProduct(input_vec_map);
+                }
+            }
+            else if(activation_type_=="linear")
+                ;
+            // std::cout<<"Activation layer bp over"<<std::endl;
+            return der;
         }
 
 

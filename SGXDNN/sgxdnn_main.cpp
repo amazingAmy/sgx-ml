@@ -107,7 +107,7 @@ void load_model_float(char *model_json, float **filters)
 #endif
 }
 
-void print_tensor(const TensorMap<float,4>&);
+void print_tensor(const TensorMap<float, 4> &);
 
 // forward pass
 void predict_float(float *input, float *output, int batch_size)
@@ -232,10 +232,13 @@ float train(float *input, float *output, float *labels, int batch_size, float le
     auto der = model_float.mem_pool->alloc<float>(batch_size * output_size);
     TensorMap<float, 4> der_map(der, output_dims);
     TensorMap<float, 4> *back_der = &der_map;
-    std::string activation_name;
+    // std::string activation_name;
     // printf("forward pass end!\nstart back propagate(stack size = %d)...\n", input_stack.size());
 
-    //loop over layers to back propagate
+    /****************************************************************
+     ***************loop over layers to back propagate***************
+     ****************************************************************/
+
     TensorMap<float, 4> *to_be_remove;
     for (int i = 0; i < model_float.layers.size(); ++i)
     {
@@ -244,29 +247,18 @@ float train(float *input, float *output, float *labels, int batch_size, float le
         if (i == 0)
         {
             assert(layer->name_ == "activation");
-            activation_name = dynamic_pointer_cast<Activation<float>>(layer)->activation_type();
+            // activation_name = dynamic_pointer_cast<Activation<float>>(layer)->activation_type();
             auto result = layer->last_back(*in_ptr, *label_ptr, *back_der, model_float.loss_func);
             back_der = &result;
             to_be_remove = input_stack.back();
             input_stack.pop_back();
         } else
         {
-            if (i < model_float.layers.size() - 1)
-            {
-                auto last_layer = model_float.layers[model_float.layers.size() - 1 - i - 1];
-                if(last_layer->name_ == "activation")
-                {
-                    activation_name = dynamic_pointer_cast<Activation<float>>(last_layer)->activation_type();
-                }
-            } else
-            {
-                activation_name = "linear";
-            }
             to_be_remove = input_stack.back();
             input_stack.pop_back();
-            auto result = layer->back_prop(*input_stack.back(), *back_der, activation_name, learn_rate);
+            auto result = layer->back_prop(*input_stack.back(), *back_der, learn_rate);
             back_der = &result;
-            if(layer->name_=="dense")
+            if (layer->name_ == "dense" || layer->name_ == "conv")
             {
                 model_float.mem_pool->release(to_be_remove->data());
             }
@@ -274,9 +266,9 @@ float train(float *input, float *output, float *labels, int batch_size, float le
         }
         model_float.mem_pool->release(to_be_remove);
     }
-
+    model_float.mem_pool->release(label_copy);
     end_time = get_time_force();
-    auto used_time = static_cast<float>(get_elapsed_time(start_time,end_time));
+    auto used_time = static_cast<float>(get_elapsed_time(start_time, end_time));
     return used_time;
 }
 
@@ -286,11 +278,11 @@ void sgxdnn_benchmarks(int num_threads)
     benchmark(num_threads);
 }
 
-void print_tensor(const TensorMap<float,4>&tensor_map)
+void print_tensor(const TensorMap<float, 4> &tensor_map)
 {
     //用来输出一个张量的便捷函数
-    cout<<tensor_map.dimensions()<<endl;
-    cout<<fixed<<setprecision(4)<<tensor_map<<setprecision(6)<<endl;
+    cout << tensor_map.dimensions() << endl;
+    cout << fixed << setprecision(4) << tensor_map << setprecision(6) << endl;
     cout.unsetf(ios::fixed);
 }
 }

@@ -9,10 +9,10 @@ import json
 import numpy as np
 import tensorflow as tf
 from tensorflow.python.client import timeline
-from keras import backend
+from keras import backend as K
 from keras.models import Model
 
-from python import imagenet
+# from python import imagenet
 from python.slalom.models import get_model, get_test_model
 from python.slalom.quant_layers import transform,DenseQ,Dense
 from python.slalom.utils import Results, timer
@@ -118,11 +118,11 @@ def main(_):
             # from multiprocessing.dummy import Pool as ThreadPool
             # pool = ThreadPool(3)
 
-            dataset_images = np.random.rand(50*args.batch_size,args.batch_size, 32, 32, 3)
-            labels = np.zeros((50*args.batch_size,args.batch_size,10))
+            dataset_images = np.random.rand(50 * args.batch_size, args.batch_size, 32, 32, 3)
+            labels = np.zeros((50 * args.batch_size, args.batch_size, 10))
             for i in range(labels.shape[0]):
                 for j in range(labels.shape[1]):
-                    random_number = np.random.randint(0,9)
+                    random_number = np.random.randint(0,10)
                     labels[i][j][random_number] = 1
             #dataset_images, labels = tf.train.batch([dataset_images, labels], batch_size=args.batch_size,
             #                                       num_threads=1, capacity=5 * args.batch_size)
@@ -170,6 +170,24 @@ def main(_):
                         array_b = np.array(array_b)
                         return ((array_a-array_b)**2).mean()
 
+                    def get_gradient(model_copy,layer_index,images):
+                        # 下面是求出layer层导数，用来debug
+                        layer = model_copy.layers[layer_index+1 if layer_index>0 else layer_index]
+                        grad = model_copy.optimizer.get_gradients(model_copy.total_loss,layer.output)
+                        input_tensors = [model_copy.inputs[0], # input data
+                                         model_copy.sample_weights[0], # how much to weight each sample by
+                                         model_copy.targets[0], # labels
+                                         K.learning_phase(), # train or test mode
+                                         ]
+                        get_gradients = K.function(inputs=input_tensors, outputs=grad)
+                        inputs = [images, # X
+                                  np.ones(args.batch_size), # sample weights
+                                  true_labels, # y
+                                  0 # learning phase in TEST mode
+                                  ]
+                        grad = get_gradients(inputs)[0]
+                        return grad
+
                     # all_data = [(i, images[i:i+1]) for i in range(args.batch_size)]
                     # preds = np.vstack(pool.map(func, all_data))
                     # np.set_printoptions(suppress=True, threshold=np.nan,precision=4)
@@ -182,43 +200,61 @@ def main(_):
                             final_label = [np.argmax(x) for x in true_labels]
                             loss = 0
 
-                            res,time = sgxutils.train(images,true_labels,num_classes=num_classes,learn_rate=0.01)
+                            result,time = sgxutils.train(images,true_labels,num_classes=num_classes,learn_rate=0.01)
                             if "mse" in model.loss:
-                                loss = np.sum((res-true_labels)**2)/res.size
+                                loss = np.sum((result-true_labels)**2)/result.size
                             elif "crossentropy" in model.loss:
-                                loss = -np.sum(true_labels*np.log(res))/args.batch_size
+                                loss = -np.sum(true_labels*np.log(result))/args.batch_size
 
-                            for x in res:
+                            for x in result:
                                 final_pred.append(np.argmax(x))
                             final_pred = np.array(final_pred)
                             final_label = np.array(final_label)
-                            print("- time:{}s {}ms".format(round(time),round((time-round(time))*1000)),"- acc:{0:.4f}".format(sum(final_pred==final_label)/args.batch_size),"- loss:{0:.4f}".format(loss))
+                            print("- time:{}s {}ms".format(round(time),round((time-round(time))*1000)),"- acc: {0:.4f}".format(sum(final_pred==final_label)/args.batch_size),"- loss: {0:.4f}".format(loss))
 
                             # preds = []
                             # for j in range(args.batch_size):
                             #     pred = sgxutils.predict(images[j:j + 1], num_classes=num_classes)
                             #     preds.append(pred)
                             # preds = np.vstack(preds)
-                        preds = sgxutils.predict(images,num_classes=num_classes)
+                        preds_narray = sgxutils.predict(images,num_classes=num_classes)
                         if model.loss=='mse':
-                            loss = np.sum((preds-true_labels)**2)/preds.size
+                            loss = np.sum((preds_narray-true_labels)**2)/preds_narray.size
                         elif 'crossentropy' in model.loss:
-                            loss = -np.sum(true_labels*np.log(preds))/args.batch_size
+                            loss = -np.sum(true_labels*np.log(preds_narray))/args.batch_size
 
-                        preds = [np.argmax(x) for x in preds]
+                        preds = [np.argmax(x) for x in preds_narray]
                         real = [np.argmax(x) for x in true_labels]
                         print("pred:",preds,"label:",real,"accuracy: {0:.4f}".format(np.sum(np.array(preds)==np.array(real))/args.batch_size),"loss:",loss)
                         print("\n*************************************\n**************sgxdnn over************\n*************************************\n")
 
+                        print("**********Before train**********")
+                        # images_tensor = tf.convert_to_tensor(images)
+
+                        # grad = get_gradient(model_copy,0,images)
+                        # np.set_printoptions(threshold=np.inf)
+                        # print("第一层的梯度：",grad[0],sep='\n')
+                        # print("#########################")
+                        # grad = get_gradient(model_copy,1,images)
+                        # np.set_printoptions(threshold=np.inf)
+                        # print("第二层的梯度：",grad[0],sep='\n')
+                        # print("#########################")
+                        # print("输入的图片：")
+                        # print(images[0])
+                        # #print(grad[0].eval())
+                        # print("#########################")
+                        # print("卷积层的卷积核参数：")
+                        # weights = model_copy.get_layer('Conv_1').get_weights()[0]
+                        # print(weights)
                         model_copy.fit(images,true_labels,batch_size=args.batch_size,epochs=args.epoch)
-                        preds = model_copy.predict(images)
+                        preds_narray = model_copy.predict(images)
 
                         if model.loss=='mse':
-                            loss = np.sum((preds-true_labels)**2)/preds.size
+                            loss = np.sum((preds_narray-true_labels)**2)/preds_narray.size
                         elif 'crossentropy' in model.loss:
-                            loss = -np.sum(true_labels*np.log(preds))/args.batch_size
+                            loss = -np.sum(true_labels*np.log(preds_narray))/args.batch_size
 
-                        preds = [x.argmax() for x in preds]
+                        preds = [x.argmax() for x in preds_narray]
                         print("pred:",preds,"label:",real,"accuracy: {0:.4f}".format(np.sum(np.array(preds)==np.array(real))/args.batch_size),"loss:",loss)
                     else:
                         pred = sgxutils.predict(images,num_classes=num_classes)
