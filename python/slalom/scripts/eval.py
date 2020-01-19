@@ -10,14 +10,14 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.python.client import timeline
 from keras import backend as K
-from keras.models import Model
+from keras.datasets import cifar10
+from keras.utils import to_categorical
 
 # from python import imagenet
 from python.slalom.models import get_model, get_test_model
-from python.slalom.quant_layers import transform,DenseQ,Dense
+from python.slalom.quant_layers import transform, DenseQ, Dense
 from python.slalom.utils import Results, timer
 from python.slalom.sgxdnn import model_to_json, SGXDNNUtils, mod_test
-from python.slalom.utils import get_all_layers
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 os.environ["TF_USE_DEEP_CONV2D"] = '0'
@@ -64,7 +64,7 @@ def main(_):
 
         with tf.Session(config=config) as sess:
             with tf.device(device):
-                #model, model_info = get_model(args.model_name, args.batch_size, include_top=not args.no_top)
+                # model, model_info = get_model(args.model_name, args.batch_size, include_top=not args.no_top)
                 model, model_info = get_test_model(args.batch_size)
             model_copy = model
             model, linear_ops_in, linear_ops_out = transform(model, log=False, quantize=args.verify,
@@ -77,21 +77,6 @@ def main(_):
 
             if args.mode == 'sgxdnn':
                 # check weight equal or not
-                weight = []
-                all_new_layer = get_all_layers(model)
-                all_layer = get_all_layers(model_copy)
-                # all_layer = get_all_layers(model_copy)
-                for new_layer in all_new_layer:
-                    if isinstance(new_layer,DenseQ):
-                        weight.append(new_layer.get_weights()[0])
-                print("find {} Dense layers.".format(len(weight)))
-                for layer in all_layer:
-                    if isinstance(layer,Dense):
-                        print("find Dense and check.")
-                        new_layer_weight = weight.pop(0)
-                        assert ((layer.get_weights()[0]==new_layer_weight).all())
-                print("...weight check success...")
-
                 # sgxutils = SGXDNNUtils(args.use_sgx, num_enclaves=args.batch_size)
                 # sgxutils = SGXDNNUtils(args.use_sgx, num_enclaves=2)
                 sgxutils = SGXDNNUtils(args.use_sgx)
@@ -113,164 +98,74 @@ def main(_):
             run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
             run_metadata = tf.RunMetadata()
 
-            print('start preparing data...')
-
             # from multiprocessing.dummy import Pool as ThreadPool
             # pool = ThreadPool(3)
 
-            dataset_images = np.random.rand(50 * args.batch_size, args.batch_size, 32, 32, 3)
-            labels = np.zeros((50 * args.batch_size, args.batch_size, 10))
-            for i in range(labels.shape[0]):
-                for j in range(labels.shape[1]):
-                    random_number = np.random.randint(0,10)
-                    labels[i][j][random_number] = 1
-            #dataset_images, labels = tf.train.batch([dataset_images, labels], batch_size=args.batch_size,
-            #                                       num_threads=1, capacity=5 * args.batch_size)
-            # print(type(dataset_images), type(labels), sep='\n')
-            # print(dataset_images.shape(),labels.shape())
-            #print(sess.run(tf.shape(dataset_images)), sess.run(tf.shape(labels)))
-            #images, true_labels = sess.run([dataset_images, labels])
-            # images = dataset_images.eval()
-            # true_labels = labels.eval()
-            print('...data prepared')
-            for i in range(num_batches):
-                # images, true_labels = sess.run([dataset_images, labels])
-                images = dataset_images[i]
-                true_labels = labels[i]
-                print("input images: {}".format(np.sum(np.abs(images))))
+            (X_train, y_train), (X_test, y_test) = cifar10.load_data()
+            y_train = y_train.reshape(y_train.shape[0])
+            y_test = y_test.reshape(y_test.shape[0])
+            X_train = X_train.astype('float32')
+            X_test = X_test.astype('float32')
+            X_train /= 255
+            X_test /= 255
+            y_train = to_categorical(y_train, num_classes)
+            y_test = to_categorical(y_test, num_classes)
 
-                if args.mode in ['tf-gpu', 'tf-cpu']:
-                    res.start_timer()
-                    preds = sess.run(model.outputs[0], feed_dict={model.inputs[0]: np.array(images),
-                                                                  backend.learning_phase(): 0},
-                                     options=run_options, run_metadata=run_metadata)
-
-                    print(np.sum(np.abs(images)), np.sum(np.abs(preds)))
-                    preds = np.reshape(preds, (args.batch_size, num_classes))
-                    print(preds)
-                    res.end_timer(size=len(images))
-                    res.record_acc(preds, true_labels)
-                    res.print_results()
-
-                    tl = timeline.Timeline(run_metadata.step_stats)
-                    ctf = tl.generate_chrome_trace_format()
-                    with open('timeline.json', 'w') as f:
-                        f.write(ctf)
-
-                else:
-                    res.start_timer()
-
-                    # no verify
-                    def func(data):
-                        return sgxutils.predict(data[1], num_classes=num_classes, eid_idx=0)
-
-                    #mse
-                    def mse(array_a,array_b):
-                        array_a = np.array(array_a)
-                        array_b = np.array(array_b)
-                        return ((array_a-array_b)**2).mean()
-
-                    def get_gradient(model_copy,layer_index,images):
-                        # 下面是求出layer层导数，用来debug
-                        layer = model_copy.layers[layer_index+1 if layer_index>0 else layer_index]
-                        grad = model_copy.optimizer.get_gradients(model_copy.total_loss,layer.output)
-                        input_tensors = [model_copy.inputs[0], # input data
-                                         model_copy.sample_weights[0], # how much to weight each sample by
-                                         model_copy.targets[0], # labels
-                                         K.learning_phase(), # train or test mode
-                                         ]
-                        get_gradients = K.function(inputs=input_tensors, outputs=grad)
-                        inputs = [images, # X
-                                  np.ones(args.batch_size), # sample weights
-                                  true_labels, # y
-                                  0 # learning phase in TEST mode
-                                  ]
-                        grad = get_gradients(inputs)[0]
-                        return grad
-
-                    # all_data = [(i, images[i:i+1]) for i in range(args.batch_size)]
-                    # preds = np.vstack(pool.map(func, all_data))
-                    # np.set_printoptions(suppress=True, threshold=np.nan,precision=4)
-
+            num_batches = int(X_train.shape[0] / args.batch_size)
+            print('training batch number :{}'.format(num_batches))
+            lr = 0.001
+            for k in range(args.epoch):
+                if (k + 1) % 10:
+                    lr *= 0.95
+                print('Epoch {}/{}'.format(k + 1, args.epoch))
+                for i in range(num_batches):
+                    done_number = int(30 * (i + 1) / num_batches)
+                    wait_to_be_done = 30 - done_number
+                    print("\r{}/{} [{}>{}] {:.2f}% ".format((i + 1) * args.batch_size, X_train.shape[0],
+                                                            '=' * done_number, '.' * wait_to_be_done,
+                                                            100 * (i + 1) / num_batches), end='')
+                    images = X_train[(i * args.batch_size):((i + 1) * args.batch_size)]
+                    labels = y_train[(i * args.batch_size):((i + 1) * args.batch_size)]
                     if args.train:
-                        print("*********sgxdnn:*********")
-                        for k in range(args.epoch):
-                            print("Epoch {}/{}".format(k+1,args.epoch),end=' ')
-                            final_pred = []
-                            final_label = [np.argmax(x) for x in true_labels]
-                            loss = 0
+                        loss_batch, acc_batch = sgxutils.train(images, labels, num_classes=num_classes,
+                                                               learn_rate=lr)
+                        print(' - loss :{:.4f} - acc :{:.4f}'.format(loss_batch, acc_batch), end='')
+                sys.stdout.flush()
+            #        res.start_timer()
 
-                            result,time = sgxutils.train(images,true_labels,num_classes=num_classes,learn_rate=0.01)
-                            if "mse" in model.loss:
-                                loss = np.sum((result-true_labels)**2)/result.size
-                            elif "crossentropy" in model.loss:
-                                loss = -np.sum(true_labels*np.log(result))/args.batch_size
+            #        # no verify
+            #        def func(data):
+            #            return sgxutils.predict(data[1], num_classes=num_classes, eid_idx=0)
 
-                            for x in result:
-                                final_pred.append(np.argmax(x))
-                            final_pred = np.array(final_pred)
-                            final_label = np.array(final_label)
-                            print("- time:{}s {}ms".format(round(time),round((time-round(time))*1000)),"- acc: {0:.4f}".format(sum(final_pred==final_label)/args.batch_size),"- loss: {0:.4f}".format(loss))
-
-                            # preds = []
-                            # for j in range(args.batch_size):
-                            #     pred = sgxutils.predict(images[j:j + 1], num_classes=num_classes)
-                            #     preds.append(pred)
-                            # preds = np.vstack(preds)
-                        preds_narray = sgxutils.predict(images,num_classes=num_classes)
-                        if model.loss=='mse':
-                            loss = np.sum((preds_narray-true_labels)**2)/preds_narray.size
-                        elif 'crossentropy' in model.loss:
-                            loss = -np.sum(true_labels*np.log(preds_narray))/args.batch_size
-
-                        preds = [np.argmax(x) for x in preds_narray]
-                        real = [np.argmax(x) for x in true_labels]
-                        print("pred:",preds,"label:",real,"accuracy: {0:.4f}".format(np.sum(np.array(preds)==np.array(real))/args.batch_size),"loss:",loss)
-                        print("\n*************************************\n**************sgxdnn over************\n*************************************\n")
-
-                        print("**********Before train**********")
-                        # images_tensor = tf.convert_to_tensor(images)
-
-                        # grad = get_gradient(model_copy,0,images)
-                        # np.set_printoptions(threshold=np.inf)
-                        # print("第一层的梯度：",grad[0],sep='\n')
-                        # print("#########################")
-                        # grad = get_gradient(model_copy,1,images)
-                        # np.set_printoptions(threshold=np.inf)
-                        # print("第二层的梯度：",grad[0],sep='\n')
-                        # print("#########################")
-                        # print("输入的图片：")
-                        # print(images[0])
-                        # #print(grad[0].eval())
-                        # print("#########################")
-                        # print("卷积层的卷积核参数：")
-                        # weights = model_copy.get_layer('Conv_1').get_weights()[0]
-                        # print(weights)
-                        model_copy.fit(images,true_labels,batch_size=args.batch_size,epochs=args.epoch)
-                        preds_narray = model_copy.predict(images)
-
-                        if model.loss=='mse':
-                            loss = np.sum((preds_narray-true_labels)**2)/preds_narray.size
-                        elif 'crossentropy' in model.loss:
-                            loss = -np.sum(true_labels*np.log(preds_narray))/args.batch_size
-
-                        preds = [x.argmax() for x in preds_narray]
-                        print("pred:",preds,"label:",real,"accuracy: {0:.4f}".format(np.sum(np.array(preds)==np.array(real))/args.batch_size),"loss:",loss)
-                    else:
-                        pred = sgxutils.predict(images,num_classes=num_classes)
-                        print(pred.shape)
-                        # for j in range(args.batch_size):
-                            # pred = sgxutils.predict(images[j:j + 1], num_classes=num_classes)
-                            #preds.append(pred)
-                            # print(pred)
-                        preds2 = model_copy.predict(images)
-                        # preds = np.vstack(preds)
-                        print(pred,preds2,pred==preds2)
+            #        def get_gradient(model_copy,layer_index,images):
+            #           # 下面是求出layer层导数，用来debug
+            #           # layer = model_copy.layers[layer_index+1 if layer_index>0 else layer_index]
+            #           layer = model_copy.layers[layer_index]
+            #           print(layer.name)
+            #           grad = model_copy.optimizer.get_gradients(model_copy.total_loss,layer.output)
+            #           input_tensors = [model_copy.inputs[0], # input data
+            #                            model_copy.sample_weights[0], # how much to weight each sample by
+            #                            model_copy.targets[0], # labels
+            #                            K.learning_phase(), # train or test mode
+            #                            ]
+            #           get_gradients = K.function(inputs=input_tensors, outputs=grad)
+            #           inputs = [images, # X
+            #                     np.ones(args.batch_size), # sample weights
+            #                     labels, # y
+            #                     0 # learning phase in TEST mode
+            #                     ]
+            #           grad = get_gradients(inputs)[0]
+            #           return grad
+            # images = np.random.random((200, 32, 32, 3))
+            # labels = np.zeros((200, 10))
+            # for i in range(200):
+            #     index = np.random.randint(0, 10)
+            #     labels[i][index] = 1
+            model_copy.fit(X_train, y_train, batch_size=32, epochs=1)
             coord.request_stop()
             coord.join(threads)
-
-        if sgxutils is not None:
-            sgxutils.destroy()
+    if sgxutils is not None:
+        sgxutils.destroy()
 
 
 if __name__ == '__main__':
@@ -301,8 +196,8 @@ if __name__ == '__main__':
     parser.add_argument('--no_top', action='store_true',
                         help='Omit top part of network.')
     parser.add_argument('--train', action='store_true',
-                       help='Train instead of verify.' )
-    parser.add_argument('--epoch',type=int,default=1,
+                        help='Train instead of verify.')
+    parser.add_argument('--epoch', type=int, default=1,
                         help='How many times you want to train the whole data set.')
     args = parser.parse_args()
 

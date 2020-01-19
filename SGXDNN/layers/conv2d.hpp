@@ -206,99 +206,115 @@ namespace SGXDNN
             return output_map;
         }
 
-        TensorMap<T,4>trim_bp_derivative(TensorMap<T,4>&der,const array<int,4>& pad)
+        TensorMap<T, 4> trim_bp_derivative(TensorMap<T, 4> &der, const array<int, 4> &pad)
         {
             int batch = der.dimension(0);
-            T*result = mem_pool_->alloc<T>(batch*input_size_);
-            TensorMap<T,4>result_map(result,batch,h,w,ch_in);
-            array4d offset = {0,pad[0],pad[3],0};
-            array4d extent = {batch,h,w,ch_in};
-            result_map = der.slice(offset,extent);
+            T *result = mem_pool_->alloc<T>(batch * input_size_);
+            TensorMap<T, 4> result_map(result, batch, h, w, ch_in);
+            array4d offset = {0, pad[0], pad[3], 0};
+            array4d extent = {batch, h, w, ch_in};
+            result_map = der.slice(offset, extent);
             mem_pool_->release(der.data());
             return result_map;
         }
 
-        TensorMap<T, 4> back_prop(TensorMap<T, 4> input, TensorMap<T, 4> der, float learn_rate)override
+        TensorMap<T, 4> back_prop(TensorMap<T, 4> input, TensorMap<T, 4> der, float learn_rate) override
         {
-            array<int,4> pad;
-            GetWindowedOutputSizeVerboseV2(h,kernel_shape_[0],1,row_stride_,padding_,&h_out,&pad[0],&pad[1]);
-            GetWindowedOutputSizeVerboseV2(w,kernel_shape_[1],1,col_stride_,padding_,&w_out,&pad[2],&pad[3]);
-            const int x_stride = col_stride_;
-            const int y_stride = row_stride_;
+            array<int, 4> pad;
+            GetWindowedOutputSizeVerboseV2(h, kernel_shape_[0], 1, row_stride_, padding_, &h_out, &pad[0], &pad[1]);
+            GetWindowedOutputSizeVerboseV2(w, kernel_shape_[1], 1, col_stride_, padding_, &w_out, &pad[2], &pad[3]);
             const int y_off = kernel_shape_[0] - 1;
             const int x_off = kernel_shape_[1] - 1;
-            const int height = h + pad[0] + pad[1];
-            const int width = w + pad[2] + pad[3];
+            const int height = h + pad[0] + pad[1];//加上padding后输入高度
+            const int width = w + pad[2] + pad[3];//加上padding后的输出高度
 
             int batch = input.dimension(0);
             new(&der)TensorMap<T, 4>(der.data(), batch, h_out, w_out, ch_out);
 
             //allocate result derivative
-            T *result_data = mem_pool_->alloc<T>(batch*height*width*ch_in);
+            T *result_data = mem_pool_->alloc<T>(batch * height * width * ch_in);
             TensorMap<T, 4> result_map(result_data, batch, height, width, ch_in);
 
             //allocate the der derivative for calculate result derivative
             int copy_size = (height - 1 + kernel_shape_[0]) * (width - 1 + kernel_shape_[1]) * batch * ch_out;
             T *back_der_copy_data = mem_pool_->alloc<T>(copy_size);
-            TensorMap<T, 4> back_der_map(back_der_copy_data, batch, height - 1 + kernel_shape_[0], width - 1 + kernel_shape_[1], ch_out);
+            TensorMap<T, 4> back_der_map(back_der_copy_data, batch, height - 1 + kernel_shape_[0],
+                                         width - 1 + kernel_shape_[1], ch_out);
 
             copy_size = (height - kernel_shape_[0] + 1) * (width - kernel_shape_[1] + 1) * ch_out * batch;
-            T*der_copy_data = mem_pool_->alloc<T>(copy_size);
-            memset(der_copy_data, 0, sizeof(T) * copy_size);
-            TensorMap<T, 4>der_copy_map(der_copy_data, batch, height - kernel_shape_[0] + 1, width - kernel_shape_[1] + 1, ch_out);
+            T *der_copy_data = mem_pool_->alloc<T>(copy_size);
+            TensorMap<T, 4> der_copy_map(der_copy_data, batch, height - kernel_shape_[0] + 1,
+                                         width - kernel_shape_[1] + 1, ch_out);
+            der_copy_map.setZero();
 
             //为了更新参数和继续计算前传的导数，需要把上一层的导数做一些加0处理后，和input与kernel进行卷积
-            for (int i = 0; i < batch; ++i)
-                for (int j = 0; j < der.dimension(1); ++j)
-                    for (int k = 0; k < der.dimension(2); ++k)
-                        for (int l = 0; l < ch_out; ++l)
-                        {
-                            der_copy_map(i, j * y_stride, k * x_stride, l) = der(i, j, k, l);
-                        }
+            for(int j=0;j<der.dimension(1);++j)
+                for(int k=0;k<der.dimension(2);++k)
+                {
+                    array4d copy_offsets = {0,j*row_stride_,k*col_stride_,0};
+                    array4d offsets = {0,j,k,0};
+                    array4d extents = {batch,1,1,ch_out};
+                    der_copy_map.slice(copy_offsets,extents) = der.slice(offsets,extents);
+                }
+            //for (int i = 0; i < batch; ++i)
+            //    for (int j = 0; j < der.dimension(1); ++j)
+            //        for (int k = 0; k < der.dimension(2); ++k)
+            //            for (int l = 0; l < ch_out; ++l)
+            //            {
+            //                der_copy_map(i, j * row_stride_, k * col_stride_, l) = der(i, j, k, l);
+            //            }
 
             array4d kernel_map_shuffle = {0, 1, 3, 2};
-            array4d reverse_array = {true,true,false,false};
-            array<std::pair<int,int>,4> paddings = {
-                    std::make_pair(0,0),
-                    std::make_pair(y_off,y_off),
-                    std::make_pair(x_off,x_off),
-                    std::make_pair(0,0)
+            array4d reverse_array = {true, true, false, false};
+            array<std::pair<int, int>, 4> paddings = {
+                    std::make_pair(0, 0),
+                    std::make_pair(y_off, y_off),
+                    std::make_pair(x_off, x_off),
+                    std::make_pair(0, 0)
             };//用来作padding补0
 
             back_der_map = der_copy_map.pad(paddings);
-            result_map = Eigen::SpatialConvolution(back_der_map, kernel_.reverse(reverse_array).shuffle(kernel_map_shuffle), 1, 1, Eigen::PADDING_VALID);
+            result_map = Eigen::SpatialConvolution(back_der_map,
+                                                   kernel_.reverse(reverse_array).shuffle(kernel_map_shuffle), 1, 1,
+                                                   Eigen::PADDING_VALID);
             mem_pool_->release(back_der_copy_data);
-
 
             kernel_map_shuffle = {2, 0, 1, 3};
             array4d input_shuffle = {3, 1, 2, 0};
             array4d der_shuffle = {1, 2, 0, 3};
-            array3d add_shuffle = {0, 1, 2};
-            paddings = {
-                    std::make_pair(0,0),
-                    std::make_pair(pad[0],pad[1]),
-                    std::make_pair(pad[2],pad[3]),
-                    std::make_pair(0,0)
-            };
-
-            if(padding_==Eigen::PADDING_VALID)
-                kernel_.shuffle(kernel_map_shuffle) -= learn_rate * (1.0f / static_cast<float>(batch)) * Eigen::SpatialConvolution(input.shuffle(input_shuffle), der_copy_map.shuffle(der_shuffle), 1, 1, Eigen::PADDING_VALID);
+            array3d add_dim = {0, 1, 2};
+            if (padding_ == Eigen::PADDING_VALID)
+            {
+                kernel_.shuffle(kernel_map_shuffle) -= learn_rate * (1.0f / static_cast<float>(batch)) *
+                                                       Eigen::SpatialConvolution(input.shuffle(input_shuffle),
+                                                                                 der_copy_map.shuffle(der_shuffle), 1,
+                                                                                 1, Eigen::PADDING_VALID);
+            }
             else
             {
+                paddings = {
+                        std::make_pair(0, 0),
+                        std::make_pair(pad[0], pad[1]),
+                        std::make_pair(pad[2], pad[3]),
+                        std::make_pair(0, 0)
+                };
                 copy_size = height * width * batch * ch_in;
-                T*input_copy_data = mem_pool_->alloc<T>(copy_size);
-                TensorMap<T,4> input_copy_map(input_copy_data,batch,height,width,ch_in);
+                T *input_copy_data = mem_pool_->alloc<T>(copy_size);
+                TensorMap<T, 4> input_copy_map(input_copy_data, batch, height, width, ch_in);
                 input_copy_map = input.pad(paddings);
-                kernel_.shuffle(kernel_map_shuffle) -= learn_rate*(1.0f/ static_cast<float>(batch))*Eigen::SpatialConvolution(input_copy_map.shuffle(input_shuffle),der_copy_map.shuffle(der_shuffle),1,1,Eigen::PADDING_VALID);
+                kernel_.shuffle(kernel_map_shuffle) -= learn_rate * (1.0f / static_cast<float>(batch)) *
+                                                       Eigen::SpatialConvolution(input_copy_map.shuffle(input_shuffle),
+                                                                                 der_copy_map.shuffle(der_shuffle), 1,
+                                                                                 1, Eigen::PADDING_VALID);
                 mem_pool_->release(input_copy_data);
             }
-            bias_ -= learn_rate * (1.0f / static_cast<float>(batch)) * der.sum(add_shuffle);
+            bias_ -= learn_rate * (1.0f / static_cast<float>(batch)) * der.sum(add_dim);
 
             mem_pool_->release(der_copy_data);
             mem_pool_->release(der.data());
 
-            if(padding_==Eigen::PADDING_SAME)
-                return trim_bp_derivative(result_map,pad);
+            if (padding_ == Eigen::PADDING_SAME)
+                return trim_bp_derivative(result_map, pad);
             else
                 return result_map;
         }

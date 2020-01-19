@@ -167,9 +167,8 @@ void predict_float(float *input, float *output, int batch_size)
     printf("total time: %4.4f sec\n", get_elapsed_time(start_time, end_time));
 }
 
-
 // back propagation
-float train(float *input, float *output, float *labels, int batch_size, float learn_rate = 0.01)
+std::pair<float, float> train(float *input, float *labels, int batch_size, float learn_rate = 0.01)
 {
     std::vector<TensorMap<float, 4> *> input_stack(model_float.layers.size());
     int output_size = model_float.layers.back()->output_size();
@@ -195,11 +194,6 @@ float train(float *input, float *output, float *labels, int batch_size, float le
     auto map_labels = TensorMap<float, 4>(label_copy, output_dims);
     TensorMap<float, 4> *label_ptr = &map_labels;
 
-    sgx_time_t start_time;
-    sgx_time_t end_time;
-    double elapsed;
-
-    start_time = get_time_force();
 
     input_stack.push_back(in_ptr);
     // loop over all layers
@@ -227,18 +221,15 @@ float train(float *input, float *output, float *labels, int batch_size, float le
             printf("layer %d required %4.4f sec\n", i, get_elapsed_time(layer_start, layer_end));
         }
     }
-    std::copy(((float *) in_ptr->data()), ((float *) in_ptr->data()) + ((int) in_ptr->size()), output);
 
     auto der = model_float.mem_pool->alloc<float>(batch_size * output_size);
     TensorMap<float, 4> der_map(der, output_dims);
     TensorMap<float, 4> *back_der = &der_map;
-    // std::string activation_name;
-    // printf("forward pass end!\nstart back propagate(stack size = %d)...\n", input_stack.size());
 
     /****************************************************************
      ***************loop over layers to back propagate***************
      ****************************************************************/
-
+    std::pair<float, float> loss_acc;
     TensorMap<float, 4> *to_be_remove;
     for (int i = 0; i < model_float.layers.size(); ++i)
     {
@@ -248,17 +239,19 @@ float train(float *input, float *output, float *labels, int batch_size, float le
         {
             assert(layer->name_ == "activation");
             // activation_name = dynamic_pointer_cast<Activation<float>>(layer)->activation_type();
-            auto result = layer->last_back(*in_ptr, *label_ptr, *back_der, model_float.loss_func);
+            auto result = layer->last_back(*in_ptr, *label_ptr, *back_der, model_float.loss_func, loss_acc);
             back_der = &result;
             to_be_remove = input_stack.back();
             input_stack.pop_back();
-        } else
+        }
+        else
         {
             to_be_remove = input_stack.back();
             input_stack.pop_back();
             auto result = layer->back_prop(*input_stack.back(), *back_der, learn_rate);
             back_der = &result;
-            if (layer->name_ == "dense" || layer->name_ == "conv")
+            //if (layer->name_ == "dense" || layer->name_ == "conv" || layer->name_ == "maxpool")
+            if(layer->name_ != "activation")
             {
                 model_float.mem_pool->release(to_be_remove->data());
             }
@@ -267,10 +260,32 @@ float train(float *input, float *output, float *labels, int batch_size, float le
         model_float.mem_pool->release(to_be_remove);
     }
     model_float.mem_pool->release(label_copy);
-    end_time = get_time_force();
-    auto used_time = static_cast<float>(get_elapsed_time(start_time, end_time));
-    return used_time;
+    model_float.mem_pool->release(back_der->data());
+    model_float.mem_pool->release(inp_copy);
+    model_float.mem_pool->release(&input_stack.back());
+    return loss_acc;
 }
+
+
+//void train(float *input, float *labels, int batch_size, float learn_rate = 0.01, int epochs = 1)
+//{
+//    for (int i = 0; i < epochs; ++i)
+//    {
+//        sgx_time_t start_time;
+//        sgx_time_t end_time;
+//        double elapsed;
+//        start_time = get_time_force();
+//
+//        printf("Epoch %d/%d\n", i + 1, epochs);
+//        auto loss_acc = train_one_batch(input, labels, batch_size, learn_rate);
+//
+//        end_time = get_time_force();
+//        auto used_time = static_cast<float>(get_elapsed_time(start_time, end_time));
+//        int sec = static_cast<int>(used_time);
+//        int ms = static_cast<int>((used_time - sec) * 1000);
+//        printf(" - time: %ds %dms -loss: %.4f - acc: %.4f\n", sec, ms, loss_acc.first, loss_acc.second);
+//    }
+//}
 
 
 void sgxdnn_benchmarks(int num_threads)

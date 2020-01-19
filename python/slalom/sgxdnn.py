@@ -103,7 +103,10 @@ class SGXDNNUtils(object):
 
         return res
     
-    def train(self,x,y,num_classes,learn_rate=0.01):
+    def train(self,x,y,num_classes,learn_rate=0.01,epochs=1):
+        class Pair(Structure):
+            _fields_ = [("first", c_float), ("second", c_float)]
+
         dtype = np.float32
         x_typed = x.reshape(-1).astype(dtype)
         inp_ptr = np.ctypeslib.as_ctypes(x_typed)
@@ -111,17 +114,13 @@ class SGXDNNUtils(object):
         y_typed = y.reshape(-1).astype(np.float32)
         label_ptr = np.ctypeslib.as_ctypes(y_typed)
 
-        res = np.zeros((len(x), num_classes), dtype=dtype)
-        res_ptr = np.ctypeslib.as_ctypes(res.reshape(-1))
-
         train_method = self.lib.train
         
-        train_method.argtypes = [POINTER(c_float),POINTER(c_float),POINTER(c_float),c_int,c_float]
-        train_method.restype = c_float
+        train_method.argtypes = [POINTER(c_float),POINTER(c_float),c_int,c_float]
+        train_method.restype = Pair
 
-        time = train_method(inp_ptr,res_ptr,label_ptr,x.shape[0],learn_rate)
-        print("time:",time)
-        return res, time
+        p = train_method(inp_ptr,label_ptr,x.shape[0],learn_rate)
+        return p.first, p.second
 
 
 

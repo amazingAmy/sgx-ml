@@ -64,7 +64,7 @@ class ActivationQ(Layer):
         self.sgxutils = sgxutils
         self.queue = queue
         self.activation = activation
-        assert activation in ["relu", "relu6", "softmax", "avgpoolrelu", "avgpoolrelu6"]
+        assert activation in ["relu", "relu6", "softmax", "avgpoolrelu", "avgpoolrelu6", "sigmoid"]
 
         self.maxpool_params = maxpool_params
         if self.maxpool_params:

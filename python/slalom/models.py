@@ -140,7 +140,7 @@ def get_model(model_name, batch_size, include_top=True, double_prec=False):
 import keras as K
 from keras.datasets import cifar10
 from keras.models import Sequential
-from keras.layers import Dense, Conv2D, MaxPool2D, Flatten, Activation,InputLayer
+from keras.layers import Dense, Conv2D, MaxPool2D, Flatten, Activation,InputLayer,AveragePooling2D
 import numpy as np
 
 
@@ -170,19 +170,43 @@ def get_test_model(batch_size):
 
         return (x_train, y_train), (x_test, y_test)
 
+    # model = Sequential()
+    # model.add(InputLayer(input_shape=[32,32,3],name='input'))
+    # model.add(Conv2D(16,kernel_size=(3,3),strides=(1,1),activation='relu',padding='valid',name='Conv_1'))
+    # model.add(AveragePooling2D(pool_size=(7,7),strides=(2,2),border_mode='valid',name='Av_1'))
+    # # model.add(Conv2D(16,kernel_size=(3,3),strides=(1,1),activation='relu',padding='valid',name='Conv_2'))
+    # # model.add(MaxPool2D(pool_size=(2,2),strides=(2,2),border_mode='same'))
+    # # model.add(Conv2D(8,kernel_size=(3,3),strides=(3,2),activation='relu',padding='valid',name='Conv_3'))
+    # # model.add(Conv2D(8,kernel_size=(2,2),strides=(2,1),activation='relu',padding='valid',name='Conv_4'))
+    # model.add(Flatten())
+    # model.add(Dense(256,activation='relu',name='Dense_1'))
+    # model.add(Dense(512,activation='relu',name='Dense_4'))
+    # model.add(Dense(1024, activation='relu',name='Dense_2'))
+    # model.add(Dense(10, activation='sigmoid',name='Dense_3'))
+    # sgd = keras.optimizers.SGD(lr=0.001,decay=0.0,nesterov=False)
+    # model.compile(optimizer=sgd, loss='mse', metrics=['accuracy'])
     model = Sequential()
-    model.add(InputLayer(input_shape=[32,32,3],name='input'))
-    model.add(Conv2D(16,kernel_size=(5,4),strides=(3,2),activation='relu',padding='same',name='Conv_1'))
-    model.add(Conv2D(16,kernel_size=(5,5),strides=(1,1),activation='relu',padding='same',name='Conv_2'))
-    model.add(Conv2D(8,kernel_size=(3,3),strides=(3,2),activation='relu',padding='valid',name='Conv_3'))
-    model.add(Conv2D(8,kernel_size=(2,2),strides=(2,1),activation='relu',padding='valid',name='Conv_4'))
-    # model.add(MaxPool2D(pool_size=(2,2),strides=(2,2),border_mode='valid'))
+    model.add(InputLayer(input_shape=[32,32,3]))
+    model.add(Conv2D(64,kernel_size=3,strides=1,padding='same',activation='relu'))
+    model.add(Conv2D(64,kernel_size=3,strides=1,padding='same',activation='relu'))
+    model.add(MaxPool2D(pool_size=2,strides=2,padding='same'))
+
+    model.add(Conv2D(128,kernel_size=3,strides=1,padding='same',activation='relu'))
+    model.add(Conv2D(128,kernel_size=3,strides=1,padding='same',activation='relu'))
+    model.add(MaxPool2D(pool_size=2,strides=2,padding='same'))
+
+    model.add(Conv2D(256,kernel_size=3,strides=1,padding='same',activation='relu'))
+    model.add(Conv2D(256,kernel_size=3,strides=1,padding='same',activation='relu'))
+    model.add(MaxPool2D(pool_size=2,strides=2,padding='same'))
+
     model.add(Flatten())
-    model.add(Dense(256,activation='relu',name='Dense_1'))
-    model.add(Dense(1024, activation='relu',name='Dense_2'))
-    model.add(Dense(10, activation='softmax',name='Dense_3'))
-    sgd = keras.optimizers.SGD(lr=0.01,decay=0.0,nesterov=False)
-    model.compile(optimizer=sgd, loss='categorical_crossentropy', metrics=['accuracy'])
+
+    model.add(Dense(4096,activation='relu'))
+    model.add(Dense(10,activation='softmax'))
+
+    sgd = keras.optimizers.SGD(lr=0.001,decay=0.0,nesterov=False)
+    model.compile(sgd,'categorical_crossentropy',metrics=['accuracy'])
+    # model.compile(optimizer=sgd, loss='categorical_crossentropy', metrics=['accuracy'])
     # model.fit(x_train,label_train, epochs=80,batch_size=350)
     # score=model.evaluate(x_test,label_test)
     # print('test score:',score[0])

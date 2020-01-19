@@ -211,7 +211,7 @@ namespace SGXDNN
 		    array4d shape = {1,1,batch,h_in_};
 		    MatrixMap<T>der_matrix_map(der.data(),batch,h_out_);
 
-		    //allocate the copy of result derivative
+		    //allocate the data of result derivative
 		    T*result_der = mem_pool_->alloc<T>(batch*h_in_);
 		    TensorMap<T,4>result_map(result_der,shape);
 
@@ -222,8 +222,8 @@ namespace SGXDNN
             //计算对本层输入的导数
             result_matrix_map = der_matrix_map * kernel_.transpose();
             //更新参数
-            kernel_ -= learn_rate*(1.0f/ static_cast<float>(batch))*(input_matrix_map.transpose()*der_matrix_map);
-            bias_map -= learn_rate *(1.0f/ static_cast<float>(batch))* (der_matrix_map.colwise().sum());
+            kernel_ -= learn_rate*(1.0f/ static_cast<T>(batch))*(input_matrix_map.transpose()*der_matrix_map);
+            bias_map -= learn_rate *(1.0f/ static_cast<T>(batch))* (der_matrix_map.colwise().sum());
             //释放上层导数的内存
 		    mem_pool_->release(der.data());
 		    return result_map;

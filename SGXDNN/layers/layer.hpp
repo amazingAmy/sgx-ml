@@ -35,7 +35,7 @@ namespace SGXDNN
             return result;
         }
         virtual TensorMap<T,4> back_prop(TensorMap<T,4>input,TensorMap<T,4>der,float learn_rate){}
-        virtual TensorMap<T,4> last_back(TensorMap<T,4>output,TensorMap<T,4>labels,TensorMap<T,4>der,std::string error_func){}
+        virtual TensorMap<T,4> last_back(TensorMap<T,4>output,TensorMap<T,4>labels,TensorMap<T,4>der,std::string loss_func,std::pair<T,T>&loss_acc){}
 
         virtual array4d output_shape() = 0;
         virtual int output_size() = 0;
