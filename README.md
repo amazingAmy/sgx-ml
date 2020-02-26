@@ -1,4 +1,4 @@
-# SLALOM
+# SLALOM(Modified)
 **Fast, Verifiable and Private Execution of Neural Networks in Trusted Hardware.**
 
 Slalom is a framework for accelerating Deep Neural Network evaluations in trusted hardware, by selectively outsourcing computations to an untrusted (but faster) colocated device while preserving the integrity and privacy of the computation.
@@ -58,18 +58,14 @@ cd slalom
 make
 ```
 
-## Running Slalom
+## Running
 
-### Evaluation with integrity
+### Train data
 To evaluate a forward pass of a network, run:
 ```
-python -m python.slalom.scripts.eval [vgg_16 | mobilenet | mobilenet_sep] sgxdnn --batch_size=8 --max_num_batches=4 {--verify}  {--verify_batched} {--verify_preproc} {--use_sgx}
+python -m python.slalom.scripts.eval vgg_16 sgxdnn --batch_size=8 --max_num_batches=4 --epoch=1 --train
 ```
 You can choose between 3 models, VGG16, MobileNet and a version of MobileNet with no intermediate activations in separable convolutions (this model is untrained). If the `verify` flag is set, computations are performed on GPU and verified on CPU. The extra ` verify_batched` and `verify_preproc` flags enable faster batched verification or verification with preprocessed secrets respecitvely. If the `use_sgx` flag is set, the CPU computations are performed inside a secure SGX enclave.
 
-### Evaluation with privacy and integrity
-To evaluate a private forward pass of a network, run:
-```
-python -m python.slalom.scripts.eval_slalom [vgg_16 | mobilenet | mobilenet_sep] --batch_size=8 --max_num_batches=4 {--blinding}  {--integrity} {--use_sgx}
 ```
 Here, the computation alternates between GPU and CPU after each linear layer. If the `blinding` flag is set, input privacy is guaranteed by precomputing random blinding and unblinding factors for linear layers and storing them (encrypted) in untrusted memory. Adding the `integrity` flag additionaly enables integrity checks on the blinded computations performed by the untrusted GPU (only works for the ` vgg_16` and `mobilenet_sep` models for now).
